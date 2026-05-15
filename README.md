@@ -1,6 +1,6 @@
 # unpins documentation
 
-The source of truth for non-trivial work in this workspace. `CLAUDE.md` (and any per-tool memory) only summarizes — when in doubt, read here.
+The source of truth for non-trivial work in the unpins workspace. The sibling [CLAUDE.md](CLAUDE.md) (and any per-tool memory) only summarizes — when in doubt, read here.
 
 ## When to read what
 
@@ -34,7 +34,7 @@ When two places disagree, the order is:
 
 1. The actual code in the workspace (`nix-lib/flake.nix`, the consumer flakes).
 2. Documents here.
-3. `CLAUDE.md`.
+3. [CLAUDE.md](CLAUDE.md).
 4. Any auto-memory.
 
 Memory is point-in-time and may name files or flags that have since moved; verify before relying on it for the current state.
