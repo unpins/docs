@@ -1,40 +1,51 @@
 # unpins documentation
 
-The source of truth for non-trivial work in the unpins workspace. The sibling [CLAUDE.md](CLAUDE.md) (and any per-tool memory) only summarizes — when in doubt, read here.
+These are the internal docs for the [unpins](https://unpins.org) workspace — the build glue, per-platform gotchas, and recipes that produce the single-binary tools published on the site.
 
-## When to read what
+If you just want to **install a tool**, you're in the wrong place: head to <https://unpins.org>. These docs are for people **building** or **modifying** packages.
 
-- **Adding a new package**: start with [adding-a-package.md](adding-a-package.md).
-- **Understanding the build glue**: [architecture.md](architecture.md) explains `mkStandaloneFlake`, the `fixes` registry in `nix-lib`, and when to extend `nix-lib` vs keep the override inline.
-- **The single-binary rule**: [dynamic-link-policy.md](dynamic-link-policy.md) lists what each OS is allowed to load dynamically, and how CI enforces it.
-- **A package needs data files at runtime**: [runtime-data.md](runtime-data.md) (vim/gvim/file pattern).
-- **Writing a source patch**: [patches.md](patches.md) — gotchas that have cost time, plus the rule "always regenerate via `diff -u`, never hand-edit".
+## Getting started
 
-## Platforms
+- **Contributing for the first time?** [contributing.md](contributing.md) explains which repo owns what and the conventions to follow.
+- **Adding a new package?** Walk through [adding-a-package.md](adding-a-package.md) — an end-to-end checklist from `flake.nix` scaffolding to first release.
+- **Understanding the build glue?** [architecture.md](architecture.md) covers `mkStandaloneFlake`, the `fixes` registry in `nix-lib`, and when to extend `nix-lib` versus keep an override inline.
+- **Cutting a release?** [releasing.md](releasing.md) — tag format, the Build/Release workflow split, Cachix, common failure modes.
 
-Each page consolidates known gotchas and dead ends, so you don't re-discover them:
+## Project rules
 
-- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls (libidn2/libpsl chain, fake-static libraries), packages that cannot cross-build via mingw.
-- [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross-from-aarch64 pattern, overlay cascade, the `fake-cross` dead end.
-- [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan toolchain, `cosmoStdenv` pattern, when to reach for it instead of mingw.
+- [dynamic-link-policy.md](dynamic-link-policy.md) — the **single-binary rule** every artifact must satisfy, and how CI enforces it per OS.
+
+## Per-platform reference
+
+Cumulative logs of gotchas, dead ends, and known fixes — so the next person doesn't re-discover them.
+
+- [platforms/mingw.md](platforms/mingw.md) — Windows cross-builds: POSIX shim gaps, the libidn2 / libpsl / libunistring / libiconv static-link chain, fake-static libraries, and packages currently blocked from a Windows port (`bash`, `git`, `coreutils`).
+- [platforms/darwin.md](platforms/darwin.md) — macOS: how `pkgsStatic` behaves on darwin, the cross-within-darwin pattern, the overlay-cascade pitfall, and two abandoned approaches.
+- [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan toolchain: when to reach for it, the `cosmoStdenv` pattern, packaging mechanics, and the `ahgamut/superconfigure` reference.
 
 ## Recipes
 
-- [big-packages.md](big-packages.md) — playbook for `ffmpeg`-class packages with large dependency graphs.
+- [patches.md](patches.md) — patch-writing gotchas: regenerate via `diff -u` (and why hand-edited hunks fail silently), nixpkgs path-style headers, where to apply the patch (consumer flake vs. `fixes` registry vs. `mingwOverlay`), fake-static library construction, symbol-collision recipe for whole-program embedding.
+- [runtime-data.md](runtime-data.md) — packages that need data files at runtime (`vim`, `gvim`, `file`). Locate-the-executable recipe per OS and how `unpin` lays the files out.
+- [big-packages.md](big-packages.md) — playbook for `ffmpeg`-class packages with large dependency graphs, plus the static GTK2 recipe used by `gvim`.
 
 ## Templates
+
+Drop-in starting points for new package repos:
 
 - [templates/flake.nix](templates/flake.nix) — minimal per-package flake.
 - [templates/build.yml](templates/build.yml) — per-package CI build workflow.
 - [templates/release.yml](templates/release.yml) — release workflow.
 
+---
+
+[`CLAUDE.md`](CLAUDE.md) is a slim summary of the project rules tailored for Claude Code and other AI agents working in the workspace. It points back to the documents above for anything non-trivial.
+
 ## Source of authority
 
-When two places disagree, the order is:
+When two sources disagree:
 
-1. The actual code in the workspace (`nix-lib/flake.nix`, the consumer flakes).
-2. Documents here.
-3. [CLAUDE.md](CLAUDE.md).
-4. Any auto-memory.
-
-Memory is point-in-time and may name files or flags that have since moved; verify before relying on it for the current state.
+1. The actual code (`nix-lib/flake.nix` and the consumer flakes).
+2. Documents in this directory.
+3. `CLAUDE.md`.
+4. Auto-memory snapshots (point-in-time, may be stale).

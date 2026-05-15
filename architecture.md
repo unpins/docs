@@ -13,7 +13,7 @@ Top-level directories are **independent git repositories**:
 | `unpin/` | The Rust CLI installer (`unpin install <pkg>`). |
 | `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template and the per-package `fixes` registry. |
 | `cosmocc/` | Cosmopolitan 4.x toolchain packaged as a Nix derivation; exposes `lib.cosmoStdenv`. |
-| `htop/`, `jq/`, `tmux/`, `tree/`, `vim/`, `gvim/`, `curl/`, `coreutils/`, `tar/`, `file/` | Package flakes. |
+| `<pkg>/` directories | Per-package flakes — one repo per tool. See [unpins.org/packages](https://unpins.org/packages.html) for the current catalog. |
 | `action-build/` | Reusable GitHub Actions workflows that build, verify, and release each flake. |
 | `website/` | Site source (`unpins.org`). |
 | `playground/` | Work-in-progress packages, not consumed by `unpin` or the website. Each entry is either blocked on an upstream issue (bash, coreutils, git) or a recipe/POC kept around for reference (dash, static-gtk2-recipe). |

@@ -1,6 +1,6 @@
 # Cosmopolitan (`cosmocc`)
 
-The Cosmopolitan toolchain ([github.com/jart/cosmopolitan](https://github.com/jart/cosmopolitan)) is unpins' escape hatch for Windows builds that the mingw cross [can't do](mingw.md#packages-blocked-on-mingw-cross): `bash`, `coreutils`, `git`, and other tools that assume POSIX `fork`/`waitpid`/signals.
+The Cosmopolitan toolchain ([github.com/jart/cosmopolitan](https://github.com/jart/cosmopolitan)) is unpins' escape hatch for Windows builds that the mingw cross [can't do](mingw.md#packages-blocked-on-mingw-cross) — tools like `bash` that assume POSIX `fork` / `waitpid` / signals at runtime.
 
 Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page copy + APC (no DLL singleton like MSYS), has its own libc that doesn't depend on `cygwin1.dll`, and bundles missing resources (`/etc/profile`, etc.) into the binary itself via zipos.
 

@@ -11,7 +11,7 @@ Each top-level directory is an **independent git repo**:
 - `unpin/` — Rust CLI installer.
 - `nix-lib/` — shared `mkStandaloneFlake` template + per-package `fixes` registry.
 - `cosmocc/` — Cosmopolitan toolchain derivation, exposes `lib.cosmoStdenv`.
-- `htop/`, `jq/`, `tmux/`, `tree/`, `vim/`, `gvim/`, `curl/`, `coreutils/`, `tar/`, `file/` — package flakes.
+- One directory per package flake (e.g. `htop/`, `tree/`) — the [packages page](https://unpins.org/packages.html) has the current catalog.
 - `action-build/` — reusable GitHub Actions workflows.
 - `website/` — site source.
 - `playground/<pkg>/` — work-in-progress packages (not consumed by `unpin` or the website). Each one is its own repo when ready for release; `playground/` itself is not.
@@ -32,11 +32,13 @@ Each pkg dir is its own repo — commit and push there, **not** from the workspa
 
 This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the documentation sits next to it. Read here before re-investigating any platform issue.
 
+- [contributing.md](contributing.md) — where contributions go (multi-repo), conventions, commit trailer.
 - [adding-a-package.md](adding-a-package.md) — checklist when scaffolding a new package.
+- [releasing.md](releasing.md) — release flow, tag format, common failure modes.
 - [architecture.md](architecture.md) — `mkStandaloneFlake`, `fixes` registry, `nix-lib` scope rule, refactor verification.
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
 - [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
-- [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; symbol-collision recipe).
+- [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
 - [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, blocked packages.
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages.

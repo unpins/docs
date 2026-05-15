@@ -6,6 +6,7 @@ Order of operations when adding `<pkg>` to unpins, based on the file/htop/tree p
 
 Before scaffolding, settle:
 
+- **Does upstream already ship portable single-binary releases?** If `<owner>/<repo>` publishes statically-linked binaries for the platforms users care about (`ripgrep` is the canonical example — BurntSushi ships musl-static Linux, native macOS, and `.exe` for Windows on every release), **don't package it.** Users get the upstream binary directly via `unpin install <owner>/<repo>`, and that's the whole point. The catalog exists for tools whose upstream **doesn't** do this.
 - Does `pkgs.pkgsStatic.<pkg>` already exist in nixpkgs? Check `nix eval nixpkgs#pkgsStatic.<pkg>.version`.
 - Is Windows feasible? Try `nix eval --impure --expr '(import <nixpkgs> { config.allowUnsupportedSystem = true; }).pkgsCross.mingwW64.<pkg>.version'`. If the package fundamentally assumes POSIX (`fork`, signals, `/etc/<file>`, etc.) the mingw path is usually a dead end — see [platforms/mingw.md](platforms/mingw.md) and consider [platforms/cosmocc.md](platforms/cosmocc.md) instead.
 - Does the package need runtime data files (config dir, magic database, syntax files)? If yes, plan to follow [runtime-data.md](runtime-data.md) (`package_data` is already on by default; the question is whether the binary's lookup path needs patching).
