@@ -2,8 +2,6 @@
 
 These are the internal docs for the [unpins](https://unpins.org) workspace — the build glue, per-platform gotchas, and recipes that produce the single-binary tools published on the site.
 
-If you just want to **install a tool**, you're in the wrong place: head to <https://unpins.org>. These docs are for people **building** or **modifying** packages.
-
 ## Getting started
 
 - **Contributing for the first time?** [contributing.md](contributing.md) explains which repo owns what and the conventions to follow.
