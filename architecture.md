@@ -11,8 +11,7 @@ Top-level directories are **independent git repositories**:
 | Path | Purpose |
 | ---- | ------- |
 | `unpin/` | The Rust CLI installer (`unpin install <pkg>`). |
-| `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template and the per-package `fixes` registry. |
-| `cosmocc/` | Cosmopolitan 4.x toolchain packaged as a Nix derivation; exposes `lib.cosmoStdenv`. |
+| `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template, the per-package `fixes` registry, and the bundled Cosmopolitan 4.x toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`). |
 | `<pkg>/` directories | Per-package flakes — one repo per tool. See [unpins.org/packages](https://unpins.org/packages.html) for the current catalog. |
 | `action-build/` | Reusable GitHub Actions workflows that build, verify, and release each flake. |
 | `website/` | Site source (`unpins.org`). |
@@ -27,7 +26,7 @@ Every package flake calls `unpins-lib.lib.mkStandaloneFlake { name = "<pkg>"; ..
 ```
 packages.<system>.default                        — native pkgsStatic build
 packages.aarch64-darwin."darwin-x86_64"           — cross within darwin
-packages.x86_64-linux."windows-x86_64"            — mingw cross from linux
+packages.x86_64-linux."windows-x86_64"            — mingw or cosmo cross from linux
 apps.<system>.default                             — `nix run` entry
 manifest                                          — read by action-build for CI config
 ```
@@ -39,10 +38,11 @@ manifest                                          — read by action-build for C
 | `self` | required | The consumer flake's `self`. |
 | `name` | required | Package name; also the lookup key in the `fixes` registry. |
 | `build` | `null` | Explicit native builder `pkgs -> drv`. When `null`, the registry's `fixes.<name>.native` is used, falling back to `pkgs.pkgsStatic.<name>`. |
-| `windowsBuild` | `null` | Explicit mingw builder. When `null`, `fixes.<name>.mingw` is used, falling back to `(mingwStaticCross pkgs).<name>`. |
+| `windowsBuild` | `null` | Explicit Windows builder (mingw, cosmo, or anything that returns a `pkgs -> drv`). When `null`, dispatch falls back to the `windowsCosmo` / `windows` flags below. |
 | `binName` | `name` | Override for `apps.default` when the binary's name differs from the package name. |
 | `nativeBuild` | `true` | Set to `false` for Windows-only packages (no native build is emitted). |
-| `windows` | `false` | Set to `true` to enable the registry's mingw path. (`windowsBuild` not null also enables it.) |
+| `windows` | `false` | Set to `true` to enable the registry's mingw path: `fixes.<name>.mingw` or `(mingwStaticCross pkgs).<name>`. (`windowsBuild` not null also enables it.) |
+| `windowsCosmo` | `false` | Set to `true` to route the Windows build through `mkPkgsCosmo` (cosmocc as cross-stdenv). Per-package quirks live in `nix-lib/cosmo/<name>.nix`. Used when the mingw cross is infeasible — see [platforms/cosmocc.md](platforms/cosmocc.md). |
 | `package_data` | `true` | Tells action-build to also publish `result/share` as a `.tar.zst`. |
 | `bootstrap_naming` | `false` | Used by `unpin/` itself for the bootstrap asset name convention. |
 | `own_software` | `false` | Marks `unpin/` itself (and any future first-party tool) — affects release notes. |

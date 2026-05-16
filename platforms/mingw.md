@@ -186,7 +186,7 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 
 `pkgsCross.mingwW64.coreutils` (9.8 in nixos-25.11) fails in `lib/savewd.c` — gnulib uses `waitpid`, which Windows doesn't have. Shimming waitpid + the rest of the fork/signal surface would be open-ended.
 
-Shipped path: native uses `pkgs.pkgsStatic.coreutils` (multicall, symlinks dropped). Windows via Cosmopolitan in `playground/coreutils/cosmo-windows.nix` (2.1 MB PE32+).
+Shipped path: native uses `pkgs.pkgsStatic.coreutils` (multicall, symlinks dropped). Windows via Cosmopolitan, wired through `windowsCosmo = true` in `unpins/coreutils/flake.nix` (per-package fix in `nix-lib/cosmo/coreutils.{nix,patch}`). The original `cosmoStdenv`-based POC lives in `playground/coreutils/` for reference.
 
 ### Other transitive dead ends in 25.11 cross-mingw
 

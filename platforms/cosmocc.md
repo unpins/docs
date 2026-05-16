@@ -9,17 +9,17 @@ Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page 
 The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Two entry points:
 
 - **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. Used by `playground/{bash,coreutils,dash,links,git}` for in-tree prefix-tree builds.
-- **`unpins-lib.lib.mkPkgsCosmo { system?, targetArch? }`** — a full `pkgsCross`-shaped nixpkgs set targeting `${arch}-unknown-cosmo-gnu`. Per-package quirks live in `nix-lib/cosmo/<pkg>.nix` and are auto-discovered. See [§ The `mkPkgsCosmo` set](#the-mkpkgscosmo-set) below.
+- **`unpins-lib.lib.mkPkgsCosmo { system?, targetArch? }`** — a full `pkgsCross`-shaped nixpkgs set targeting `${arch}-unknown-cosmo-gnu`. Per-package quirks live in `nix-lib/cosmo/<pkg>.nix` and are auto-discovered. See [§ The `mkPkgsCosmo` set](#the-mkpkgscosmo-set) below. Catalog packages opt in via `windowsCosmo = true` in their `flake.nix` — `coreutils` is the first shipping consumer.
 
-Ports in `playground/`:
+Ports in `playground/` (older `cosmoStdenv`-based POCs, kept around for reference):
 
 - `playground/dash` — first POC (568 KB PE32+).
 - `playground/bash` — 1.85 MB PE32+, via the `superconfigure` patches.
-- `playground/coreutils` — 2.1 MB PE32+ multicall via the `superconfigure` patches.
+- `playground/coreutils` — 2.1 MB PE32+ multicall via the `superconfigure` patches. Superseded by the top-level `unpins/coreutils` (`windowsCosmo = true` route).
 - `playground/links` — text browser, mingw single-binary builds via in-tree port.
 - `playground/git` — multicall PE32+ with embedded cosmocc dash for shell hooks.
 
-Decision pending before promoting any of these to top-level: see [Caveats](#caveats).
+The empty-import-table trade-off ([Caveats](#caveats)) has been accepted for packages where mingw is infeasible; see [../dynamic-link-policy.md](../dynamic-link-policy.md#cosmopolitan-caveat).
 
 ## When to reach for cosmocc
 
@@ -30,7 +30,7 @@ If `pkgsCross.mingwW64.<pkg>` works, prefer it — the cosmocc route trades the 
 
 ## Caveats
 
-1. **Empty import table.** Cosmo PE binaries call `ntdll.dll` directly via syscall numbers. CI's `grep -iE '^lib.*\.dll$'` import check passes by omission, but `ntdll` is stable de facto since NT 4.0 and **not** in the Microsoft ABI contract. The spirit of [../dynamic-link-policy.md](../dynamic-link-policy.md) is "only kernel32 / ucrtbase / system DLLs". Decide and document before promoting from `playground/`.
+1. **Empty import table.** Cosmo PE binaries call `ntdll.dll` directly via syscall numbers. CI's `grep -iE '^lib.*\.dll$'` import check passes by omission, but `ntdll` is stable de facto since NT 4.0 and **not** in the Microsoft ABI contract. The spirit of [../dynamic-link-policy.md](../dynamic-link-policy.md) is "only kernel32 / ucrtbase / system DLLs". Accepted for packages where mingw is infeasible (see the policy's [Cosmopolitan caveat](../dynamic-link-policy.md#cosmopolitan-caveat) section).
 
 2. **Slow `fork()`.** ~100 ms per fork on Windows (vs ~1 ms on Linux). OK for interactive shell use; heavy configure scripts feel it.
 

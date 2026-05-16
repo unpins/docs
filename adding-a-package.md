@@ -26,7 +26,7 @@ cp ../docs/templates/build.yml .github/workflows/<pkg>.yml
 cp ../docs/templates/release.yml .github/workflows/release.yml
 ```
 
-Edit `flake.nix`: set `description`, `name`, and any `build` / `windowsBuild` / `package_data` overrides. The minimum case (no quirks, three platforms) is ~16 lines — see `tree/flake.nix`.
+Edit `flake.nix`: set `description`, `name`, and any `build` / `windowsBuild` / `windowsCosmo` / `package_data` overrides. The minimum case (no quirks, three platforms) is ~16 lines — see `tree/flake.nix`.
 
 ## 3. Generate the lock file
 
@@ -65,7 +65,7 @@ $(find /nix/store -name 'x86_64-w64-mingw32-objdump' | head -1) \
   -p result/bin/<pkg>.exe | grep 'DLL Name'           # expect only KERNEL32 / msvcrt / SHLWAPI etc.
 ```
 
-If a `lib*.dll` shows up, see [platforms/mingw.md](platforms/mingw.md) — the static-lib static-link toolbox covers most cases. If the build itself fails, the package may be one of the mingw dead-ends (bash, git, coreutils — all blocked on POSIX assumptions in upstream + nixpkgs).
+If a `lib*.dll` shows up, see [platforms/mingw.md](platforms/mingw.md) — the static-lib static-link toolbox covers most cases. If the build itself fails, the package may be one of the mingw dead-ends (bash, git — both blocked on POSIX assumptions in upstream + nixpkgs). Try the cosmo route (`windowsCosmo = true`) — that's how `coreutils` ships its Windows build. See [platforms/cosmocc.md](platforms/cosmocc.md).
 
 ## 7. Handle runtime data if the package needs it
 
@@ -96,7 +96,7 @@ Regenerate the table:
 cd ../website && python3 gen-packages.py
 ```
 
-The script also picks up `windows = true` / `windowsBuild = ...` / `"windows-x86_64"` from the flake to fill the Windows column.
+The script also picks up `windows = true` / `windowsCosmo = true` / `windowsBuild = ...` / `"windows-x86_64"` from the flake to fill the Windows column.
 
 ## 9. First commit
 
