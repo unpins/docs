@@ -115,16 +115,72 @@ The shipped path for bash on Windows is Cosmopolitan — see `playground/bash/co
 
 ### git
 
-Blocked at every layer:
+Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-static cascade, ~7-8 MB after static curl). The "blocked at every layer" story from earlier sessions was wrong: every dep-chain failure was a spurious cross-build of a tool that `gitMinimal` only uses to rewrite shebangs of shell scripts we delete anyway, OR was bypassable with a knob already used by other unpins packages. The single real source bug was patched in 5 lines.
 
-- `pkgsCross.mingwW64.bash` fails (above).
-- `pkgsCross.mingwW64.gawk` fails (`regex_internal.h: langinfo.h: No such file or directory`). Workaround via `buildPackages.gawk` only goes one layer deep.
-- `pkgsCross.mingwW64.libev` fails (libtool no-undefined). Bypassable with `http3Support = false`.
-- `pkgsCross.mingwW64.nghttp3` fails (`fatal error: arpa/inet.h: No such file or directory`).
+**Recipe** (`gitMinimal.override` + `.overrideAttrs`):
 
-From-scratch attempts (own `mkDerivation` with `make NO_CURL=1 NO_OPENSSL=1`) get past dep issues but hit POSIX header errors because git's Makefile assumes Linux unless `uname_S=MINGW*` is set. Even then, `git filter-branch` / `git rebase -i` need a POSIX shell at runtime — not shippable as single-binary on Windows.
+1. **Build-host tool overrides** (none of these are runtime deps; nixpkgs' `gitMinimal` only uses them to substitute `${pkg}/bin/foo` paths into `git-filter-branch` etc., which we drop):
 
-Shipped path: native-only (Linux + Darwin). Windows route in `playground/git/` via embedded dash + on-demand extraction of the shell-script subcommands.
+   ```nix
+   bash = buildPackages.bash;
+   gawk = buildPackages.gawk;
+   gnused = buildPackages.gnused;
+   gnugrep = buildPackages.gnugrep;
+   coreutils = buildPackages.coreutils;
+   ```
+
+   These cancel the cross-mingw builds of bash/gawk/sed (any of which still fail upstream; sed needs `-lbcrypt` for `getrandom`, gawk needs `langinfo.h`, etc.).
+
+2. **Drop `make-shell-wrapper-hook`** from `nativeBuildInputs` via filter. The hook's `.shell` substitution resolves to `targetPackages.runtimeShell` (cross bash); but `gitMinimal` has `perlSupport = false`, so the wrapper is never invoked — pure dead weight that drags cross bash into the closure.
+
+3. **`http3Support = false`** on the curl override. Same recipe as `unpins/curl`. Bypasses cross-mingw `libev`/`nghttp3` failures.
+
+4. **`zlib-ng = zlib`** override. nixpkgs' cross `zlib-ng` ships only `libzlib-ng.dll.a` (no static), so the static link fails. Plain zlib works; pair with `makeFlags` filter to drop `ZLIB_NG=1`.
+
+5. **`dontConfigure = true`**. Running `./configure` generates a `config.mak.autogen` that contradicts the `compat/win32/*.h` headers — e.g. autoconf decides `NO_INET_PTON=1` because its probes fail (no `<sys/socket.h>` on mingw), but `compat/mingw-posix.h` already declares `inet_pton`. Skip configure entirely; rely on the Makefile's `uname_S=MINGW` branch.
+
+6. **`makeFlags`**:
+
+   ```
+   uname_S=MINGW       # force the MINGW branch in config.mak.uname
+   MSYSTEM=MINGW64     # avoid -D_USE_32BIT_TIME_T fallback (incompatible with _WIN64)
+   NO_GETTEXT=YesPlease   # gettext.h still includes <libintl.h> unless this is set
+                          # (USE_GETTEXT_SCHEME=fallthrough alone is not enough)
+   USE_LIBPCRE=        # override the MINGW block's USE_LIBPCRE=YesPlease
+   CC=<target>-gcc
+   AR=<target>-ar
+   RC=<target>-windres -O coff
+   INSTALL=install
+   CURL_CONFIG=${curl.dev}/bin/curl-config
+   ```
+
+7. **Patch `compat/win32/pthread.h`**: the `pthread_sigmask` stub is gated by `#ifndef __MINGW64_VERSION_MAJOR`, but the same header defines `PTHREAD_H` at the top so the real winpthreads `<pthread.h>` (which would provide `pthread_sigmask`) is never included. Drop the gate — make the stub unconditional. This is a latent bug in git that git-for-windows' MSYS2-specific build environment papers over.
+
+8. **postInstall**: fix nixpkgs git's `bin/git-http-backend → libexec/git-core/git-http-backend` symlink — on Windows the target is `git-http-backend.exe`. Walk `$out/bin/` and re-link any dangling symlinks with `.exe` appended.
+
+**Symbol collisions** under multicall — both fixed in `playground/git/`:
+
+- `scalar.c::load_builtin_commands` is a `die("not implemented")` stub that collides with git.c's real implementation once scalar.o is folded in. `playground/git/scalar-rename-load-builtin.patch` renames it to `scalar_load_builtin_commands`; help.c then resolves to git.c's real one (strict improvement).
+- libidn2 (gnulib) exports a global `error` that collides with git's usage.c. Fix: `objcopy --localize-symbol=error libidn2.a` in the libidn2 derivation's postInstall — see `nix-lib/flake.nix`'s `fixes.libidn2.mingwOverlay` for the mingw side and `playground/git/flake.nix`'s `withLocalizedLibidn2` (threaded via `.override`, not as a top-level overlay — overlays at top level invalidate `pkgsBuildHost.stdenv` and force a gcc rebuild) for native.
+
+After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhere.
+
+**Static cascade** lives in `playground/git/flake.nix`'s `mkMingw` closure (wired at `packages.x86_64-linux.windows-x86_64`) — validated 2026-05-15, producing a 7.2 MB `git.exe` with zero non-system DLL imports:
+
+- `cross = nix-lib.lib.mingwStaticCross pkgs` for the static-libs adapter.
+- `curlSchannel = nix-lib.lib.mingwStaticBinary { ... }` — same shape as `unpins/curl` (`opensslSupport = false; scpSupport = false; libssh2 = null; brotliSupport = false; zstdSupport = false`) plus `--with-schannel` and `-DCURL_STATICLIB -DNGHTTP2_STATICLIB -DPSL_STATIC`.
+- `gitMinimal.override { curl = curlSchannel; bash/gawk/gnused/gnugrep/coreutils = pkgs.X; }` to keep build-host tools native.
+- **EXTLIBS gotcha**: the MINGW Makefile block accumulates `EXTLIBS += -lws2_32 -lntdll` plus multicall.patch's `EXTLIBS += $(CURL_LIBCURL) $(EXPAT_LIBEXPAT)`. A command-line `EXTLIBS=...` makeFlag **clobbers all of that**, so re-include everything explicitly, ordered consumer-before-provider for single-pass static linking:
+
+  ```
+  EXTLIBS=-lcurl -lexpat -lnghttp2 -lpsl -lidn2 -lunistring -liconv -lz -lws2_32 -lcrypt32 -lsecur32 -liphlpapi -lntdll -lbcrypt -ladvapi32
+  ```
+
+  `-lsecur32` provides Schannel's SSPI table (`InitSecurityInterfaceA`); `-liphlpapi` provides `if_nametoindex` that curl uses for interface scoping; `-lcrypt32`/`-lbcrypt` provide the cert validation + AEAD surface Schannel needs.
+
+- **`NO_OPENSSL=YesPlease` + `USE_CURL_FOR_IMAP_SEND=YesPlease`** makeFlags: Schannel-curl means no openssl in tree, but git's `imap-send.c` references openssl symbols directly. The first prevents the openssl autoconf probe; the second routes IMAP TLS through curl (which uses Schannel).
+
+**Runtime shell** is still required (`git-submodule`, `git-mergetool`, hooks). Same problem as Linux/Darwin, solved there by the dash-embed pattern in `playground/git/embed.patch`. For Windows, port the embed pipeline to cross-mingw (or use a cosmo dash blob). `playground/git/flake.nix`'s `multicallOverride { withEmbed = false; }` is the current mingw mode — ships the binary without embedded scripts; users of submodule/mergetool need a system shell until the embed port lands.
 
 ### coreutils
 

@@ -6,11 +6,18 @@ Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page 
 
 ## Status
 
-The workspace's `cosmocc/` directory (published as `github:unpins/cosmocc`) is the toolchain flake. Three ports live in `playground/`:
+The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Two entry points:
+
+- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. Used by `playground/{bash,coreutils,dash,links,git}` for in-tree prefix-tree builds.
+- **`unpins-lib.lib.mkPkgsCosmo { system?, targetArch? }`** — a full `pkgsCross`-shaped nixpkgs set targeting `${arch}-unknown-cosmo-gnu`. Per-package quirks live in `nix-lib/cosmo/<pkg>.nix` and are auto-discovered. See [§ The `mkPkgsCosmo` set](#the-mkpkgscosmo-set) below.
+
+Ports in `playground/`:
 
 - `playground/dash` — first POC (568 KB PE32+).
 - `playground/bash` — 1.85 MB PE32+, via the `superconfigure` patches.
 - `playground/coreutils` — 2.1 MB PE32+ multicall via the `superconfigure` patches.
+- `playground/links` — text browser, mingw single-binary builds via in-tree port.
+- `playground/git` — multicall PE32+ with embedded cosmocc dash for shell hooks.
 
 Decision pending before promoting any of these to top-level: see [Caveats](#caveats).
 
@@ -69,31 +76,36 @@ These cost time when packaging `cosmocc` itself or a cosmo-built tool.
 
 2. **APE doesn't auto-modify in 4.x.** MD5 stays identical after running. `/nix/store` (read-only) works fine. Older versions had `ape-modify-self.o` that rewrote the header; cosmocc 4.0.2 uses `ape-no-modify-self.o` by default.
 
-3. **`path:../<dir>` inputs don't work across flakes.** Relative paths escape the nix-store source copy. Declare `url = "github:unpins/cosmocc"` and use `--override-input cosmocc path:/abs/path` during dev. Same pattern as `unpins-lib` in the rest of the workspace.
+3. **nixpkgs' `cosmocc` is 2.2.** No `apelink -V`, no `-mtiny`. Always package 4.x from `cosmo.zip/pub/cosmocc/cosmocc-4.0.2.zip` (441 MB) until nixpkgs catches up.
 
-4. **nixpkgs' `cosmocc` is 2.2.** No `apelink -V`, no `-mtiny`. Always package 4.x from `cosmo.zip/pub/cosmocc/cosmocc-4.0.2.zip` (441 MB) until nixpkgs catches up.
-
-5. **`gnumake` as a separate input.** The derivation uses `stdenvNoCC` for the toolchain itself. Add `pkgs.gnumake` in `nativeBuildInputs` for any consumer — cosmocc is only the compiler/linker.
+4. **`gnumake` as a separate input.** The derivation uses `stdenvNoCC` for the toolchain itself. Add `pkgs.gnumake` in `nativeBuildInputs` for any consumer — cosmocc is only the compiler/linker.
 
 ## The `cosmoStdenv` pattern
 
-`cosmocc/flake.nix` exposes `lib.cosmoStdenv pkgs` — a thin wrapper over `pkgs.stdenvNoCC` that bakes in everything a cosmocc-port needs by default. Repeating the env-var dance (`CC=x86_64-unknown-cosmo-cc`, `AR=x86_64-linux-cosmo-ar`, `STRIP=...`, plus `dontPatchELF` and `dontStrip`) per derivation gets tedious; doing it once in a stdenv keeps consumer flakes legible.
+`unpins-lib.lib.cosmoStdenv pkgs` (sourced from `nix-lib/cosmocc.nix`) returns a full stdenv with `pkgs.wrapCCWith` + `pkgs.wrapBintoolsWith` around cosmocc's tools, plus `dontPatchELF` / `dontStrip` / `hardeningDisable = [ "all" ]` injected as defaults via `pkgs.stdenvAdapters.addAttrsToDerivation`. Because it's a real cc-wrapped stdenv, `buildInputs` propagate the usual way:
+
+- headers (`$dep/include`) get `-isystem` injected by the cc-wrapper setup-hook
+- libs (`$dep/lib`) get `-L` injected by the bintools-wrapper setup-hook
+
+So derivations can list cosmo-built libs in `buildInputs` directly without any prefix-tree dance — though the prefix-tree pattern (`bash`/`coreutils`) still works because the underlying single-arch driver honors `$COSMOS`.
+
+The returned value also carries passthru attrs: `.cosmocc` (raw zip dir, used by `playground/{dash,git}` for direct `CC=cosmocc` invocations), `.platformBits`, `.mkCrossWiring` (consumed internally by `mkPkgsCosmo`).
 
 ```nix
-inputs.cosmocc.url = "github:unpins/cosmocc";
+inputs.unpins-lib.url = "github:unpins/nix-lib";
 
-outputs = { nixpkgs, cosmocc, ... }: let
+outputs = { nixpkgs, unpins-lib, ... }: let
   pkgs = nixpkgs.legacyPackages.x86_64-linux;
-  cosmoStdenv = cosmocc.lib.cosmoStdenv pkgs;
+  cosmoStdenv = unpins-lib.lib.cosmoStdenv pkgs;
 in {
   packages.x86_64-linux.windows-x86_64 = cosmoStdenv.mkDerivation {
     pname = "foo-windows";
     version = "1.0";
     src = ...;
-    # nativeBuildInputs gets cosmocc prepended automatically.
-    # CC/CXX/AR/RANLIB/STRIP/LD/NM/OBJCOPY/OBJDUMP set automatically.
-    # dontPatchELF = true; dontStrip = true — defaults.
-    nativeBuildInputs = [ pkgs.gnumake ];   # plus other tools as needed
+    # CC/CXX/AR/RANLIB/STRIP/LD/NM/OBJCOPY/OBJDUMP set by cc-wrapper setup-hook.
+    # dontPatchELF=true; dontStrip=true; hardeningDisable=["all"] — defaults.
+    nativeBuildInputs = [ pkgs.gnumake ];
+    buildInputs = [ /* cosmo-built static libs */ ];
     buildPhase = ''
       ./configure --prefix=$out --enable-static-link
       make
@@ -107,15 +119,93 @@ in {
 };
 ```
 
+### Why cc-wrapper, despite the warnings
+
+The first cosmoStdenv was deliberately *slim* (`stdenvNoCC // { mkDerivation = ...; }`) because nixpkgs' cc-wrapper is famous for assuming glibc/musl conventions, multilib, and dynamic linkers. The migration to full cc-wrapper (2026-05-15) keeps cosmocc happy by:
+
+- passing `libc = null` to `wrapCCWith` and `wrapBintoolsWith` — this short-circuits all glibc-path injection (`-B`, `-idirafter`, `-dynamic-linker`, `libc-cflags`/`libc-ldflags`);
+- staying on the host platform (`x86_64-linux-gnu`), since cosmocc's APE output is *also* a valid Linux ELF — nix doesn't see this as a cross build;
+- disabling every hardening flag (cosmocc has its own self-contained set; see [§ hardening](#hardening) below).
+
+What we gain: `buildInputs` propagation works automatically, consumers stop hand-rolling `CC=…`/`AR=…`/`LD=…`, and adding cosmo-built libraries as separate derivations (vs. one giant in-tree prefix) becomes ergonomic.
+
+### Toolchain wiring under the hood
+
+A few non-obvious traps that the wrapped unwrapped derivations work around — preserve these when touching `nix-lib/cosmocc.nix`:
+
+1. **Single-arch driver, not fat.** cosmocc ships both `cosmocc` (fat, multi-arch APE) and `${arch}-unknown-cosmo-cc` (single-arch). Only the single-arch driver honors `$COSMOS` (auto-injects `-L$COSMOS/lib` and `-I$COSMOS/include`); the fat driver doesn't. Bash and coreutils both set `export COSMOS=$NIX_BUILD_TOP/cosmos` in their build phase to assemble a prefix tree of static libs in-process, so they depend on this. The wrapped stdenv MUST use the single-arch driver — switching to fat silently breaks bash's final `-lncurses` link.
+
+2. **Arch-prefix check in the driver.** `${arch}-unknown-cosmo-cc` does `ARCH=${PROG%%-*}; [ "$ARCH" = "$PROG" ] && fatal_error "cosmocross must be run via cross compiler"`. Plain `gcc` (no `-`) hits the fatal. The unwrapped cc derivation exposes `gcc`/`cc`/`g++`/`c++` as tiny `exec` shims (not symlinks), so the underlying driver sees its real arch-prefixed `$0`.
+
+3. **Sysroot relative to `$BIN`.** The driver does `-isystem $BIN/../include` and `-L$BIN/../${arch}-linux-cosmo/lib` where `$BIN=${0%/*}`. The unwrapped cc derivation mirrors cosmocc's full layout (bin/, include/, lib/, per-arch sysroot dirs) so these resolve.
+
+4. **`cosmoranlib` ships 0444 in upstream 4.0.2.** Other cosmo* fat scripts are 0555. The toolchain derivation does `chmod +x $out/bin/cosmoranlib` in unpackPhase. (Single-arch ranlib `${arch}-linux-cosmo-ranlib` is fine.)
+
+5. **Bintools are `#!/bin/sh` shims, not symlinks** (added 2026-05-15 after the links/OpenSSL port). Underlying `${arch}-linux-cosmo-ar`/`ld`/etc. are APE polyglots; Linux `execve` of an APE returns `ENOEXEC`. GNU make's "no metacharacters → skip the shell" optimisation execve's `ar foo.a x.o` directly and crashes with `make: ar: No such file or directory` (OpenSSL's build was the canary). Shell invocation has the POSIX ENOEXEC-fallback path that triggers APE self-bootstrap, so wrapping each tool in a tiny `#!/bin/sh ... exec ...` shim lands every invocation back in shell. Plain symlinks for bintools are a regression trap. (Same reason `gcc`/`cc`/`g++`/`c++` are also shims — trap #2 above.)
+
+<a name="hardening"></a>
+### Hardening: all off
+
+`cosmoStdenv` sets `hardeningDisable = [ "all" ]`. Per flag:
+
+- **fortify / fortify3** — `_FORTIFY_SOURCE` needs glibc-style `__asm__` name redirections in headers; cosmocc's headers don't ship them.
+- **stackprotector** — needs `__stack_chk_guard` symbol; cosmopolitan libc doesn't export it.
+- **relro / bindnow** — `-Wl,-z,relro -Wl,-z,now` conflicts with cosmocc's default `-Wl,-z,norelro`.
+- **pic** — cosmocc passes `-fno-pie` itself; `-fPIC` from the wrapper is overridden but noisy.
+- **strictoverflow / format** — harmless, but no benefit since cosmocc binaries don't link against system libc.
+
+Consumers can re-enable per-flag via `hardeningEnable = [ "stackprotector" ]` if they really want, but `addAttrsToDerivation` overwrites rather than merges `hardeningDisable`, so be careful.
+
 ### Deliberately NOT in `cosmoStdenv`
 
-- **No cc-wrapper.** nixpkgs' cc-wrapper assumes glibc/musl-style linker conventions and multilib; cosmocc decides linker + two-arch output itself. Wrapping it has been a cross-cutting pain elsewhere (see [darwin.md](darwin.md) and the rest of this page). The stdenv stays slim.
-- **No per-package config recipes.** Each port writes its own `buildPhase` / `installPhase` / `apelink -V` step. A higher-level helper (ncurses → readline → bash sequence) would be premature with two ports; revisit at 3+.
-- **No registry slot in `nix-lib`.** Symmetrical to `mingwOverlay` would be the natural place, but `mkStandaloneFlake` doesn't route through cosmo yet — consumer flakes do a manual merge of `mkStandaloneFlake` outputs and the cosmo `windows-x86_64` derivation.
+- **No per-package config recipes.** Each port writes its own `buildPhase` / `installPhase` / `apelink -V` step. The `mkPkgsCosmo` set (next section) is the answer when you want regular nixpkgs derivations rebuilt against cosmocc — but `cosmoStdenv` itself stays minimal.
 
 ### Arch coverage
 
-`x86_64-linux` and `aarch64-linux` hosts both work; the stdenv picks the right binutils prefix from `pkgs.stdenv.hostPlatform.parsed.cpu.name`. Other archs throw.
+`x86_64-linux` and `aarch64-linux` hosts both work; the stdenv picks the right driver/binutils prefix from `pkgs.stdenv.hostPlatform.parsed.cpu.name` via the `mkCcUnwrapped`/`mkBintoolsUnwrapped` helpers. Other archs throw.
+
+<a name="the-mkpkgscosmo-set"></a>
+## The `mkPkgsCosmo` set
+
+`unpins-lib.lib.mkPkgsCosmo { system ? "x86_64-linux", targetArch ? "x86_64" }` returns a full nixpkgs package set re-evaluated with cosmocc wired in as a cross-toolchain. Use it when you want to consume *regular* `nixpkgs.openssl` / `nixpkgs.ncurses` / `nixpkgs.libevent` rebuilt against cosmocc, instead of hand-writing a build phase per dep.
+
+```nix
+let
+  pkgsCosmo = unpins-lib.lib.mkPkgsCosmo {};
+in pkgsCosmo.libevent          # static, cosmo-flavoured
+```
+
+Mechanism:
+
+1. **`applyPatches` on nixpkgs source** — adds a `cosmo` kernel to `lib/systems/{parse,inspect}.nix` via `nix-lib/cosmo-lib-systems.patch` (12 lines). This makes `crossSystem.config = "${arch}-unknown-cosmo-gnu"` parseable + exposes `isCosmo` as a predicate.
+2. **`crossSystem.config = "${targetArch}-unknown-cosmo-gnu"` + `libc = null`** — tells nixpkgs to construct a cross set without trying to find/build a libc derivation.
+3. **`config.replaceCrossStdenv`** — when nixpkgs builds the cross stdenv, swap its cc/bintools for cosmocc's via `mkCrossWiring { buildPackages, baseStdenv, targetPrefix, targetArch }`. The wiring also wraps the result with `stdenvAdapters.makeStaticLibraries` (cosmocc can't emit `.so`) and adds a setup-hook that patches `config.sub` to accept `cosmo-gnu` (no `gnu-config` derivation override, so xgcc bootstrap stays cached).
+4. **Per-package overlay** — `nix-lib/cosmo/<pkg>.nix` files are auto-discovered. Each is `{ lib }: final: prev: { ... }`. The convention is to **gate the override on `prev.stdenv.hostPlatform.isCosmo`** so it only affects the cross set, not `buildPackages` (where it would invalidate cache.nixos.org hashes).
+
+```nix
+# nix-lib/cosmo/ncurses.nix
+{ lib }:
+final: prev:
+if (prev.stdenv.hostPlatform.isCosmo or false) then {
+  ncurses = prev.ncurses.override {
+    enableStatic = true;
+    unicodeSupport = false;  # cosmo's wchar.h split breaks widec ncurses
+  };
+} else { }
+```
+
+### When to use `mkPkgsCosmo` vs `cosmoStdenv`
+
+- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — currently `playground/{bash,coreutils,dash,links,git}`. The pattern matches `superconfigure`'s shape.
+- **`mkPkgsCosmo`** for "I just want `pkgs.openssl` cosmo-flavoured" — when the package builds cleanly via autotools and you only need a per-package quirk file in `cosmo/`. Most packages need `NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1` because their `meta.platforms` doesn't list cosmo.
+
+### Cross-arch caveat
+
+`targetArch` controls the cosmocc single-arch driver. Within a single `system` you can swap the target (`x86_64` ↔ `aarch64`) — the cosmocc 4.0.2 zip ships both drivers. `mkCrossWiring` synthesizes the correct arch-prefixed shims on demand.
+
+### Growing the overlay
+
+When you hit a cosmo-build failure that's a per-package source/config issue (e.g. libevent's `if_nametoindex` not in cosmo's `net/if.h`), add `nix-lib/cosmo/<pkg>.nix` with an `isCosmo`-gated override. Mirror `ahgamut/superconfigure`'s `minimal.diff` for that package whenever possible — it's the canonical patch reference.
 
 ## Superconfigure reference
 
@@ -182,7 +272,7 @@ Quirks discovered during the port:
 
 5. **gmp needs `--disable-fat --disable-assembly --disable-cxx`.** cosmocc doesn't consume fat-build asm dispatch tables. Plain C gives a slow but functional gmp; affects `factor`/`numfmt` on very large primes. Acceptable for MVP.
 
-6. **gmp configure needs `nm` in `$NM`.** Added to `cosmoStdenv` (also `OBJCOPY`/`OBJDUMP`) so future ports inherit.
+6. **gmp configure needs `nm` in `$NM`.** Now set automatically by the bintools-wrapper setup-hook from PATH lookup (it exports `AR`/`AS`/`LD`/`NM`/`OBJCOPY`/`OBJDUMP`/`READELF`/`RANLIB`/`STRIP`/`STRINGS`/`SIZE`/`WINDRES`); when adding a new tool name, just make sure it's symlinked in `cosmoBintoolsUnwrapped`'s `bin/`.
 
 ## Future: perl, python via Cosmopolitan
 
