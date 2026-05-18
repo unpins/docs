@@ -20,7 +20,7 @@ Each pkg dir is its own repo — commit and push there, **not** from the workspa
 ## Non-negotiables
 
 - **Single binary, no companion DLL/dylib/so.** Per-OS allow-list and CI enforcement: [dynamic-link-policy.md](dynamic-link-policy.md).
-- **Per-binary quirks live inline in the consumer flake's `build` / `windowsBuild` closures**, not in `nix-lib`. Shared library-dep tweaks consumed transitively by other packages live in `nix-lib/{native-overlay,mingw-overlay,cosmo}/<lib>.nix` (auto-discovered via `readDir`).
+- **Per-binary quirks live inline in the consumer flake** — `build` / `windowsBuild` closures for native/mingw, a `./cosmo.nix` sidecar invoked via `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }` for cosmocc — not in `nix-lib`. Shared library-dep tweaks consumed transitively by other packages live in `nix-lib/{native-overlay,mingw-overlay,cosmo}/<lib>.nix` (auto-discovered via `readDir`).
 - **GitHub repo description = `flake.nix` `description` verbatim** at repo creation:
   ```
   gh repo create unpins/<pkg> --public \
