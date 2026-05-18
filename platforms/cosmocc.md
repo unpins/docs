@@ -175,20 +175,20 @@ Consumers can re-enable per-flag via `hardeningEnable = [ "stackprotector" ]` if
 { unpins-lib }:
 pkgs:
 let
-  cs = import "${unpins-lib.outPath}/cosmocc.nix" { pkgs = pkgs.buildPackages; };
   cosmoPkgs = unpins-lib.lib.cosmoStaticCross pkgs;
 in
-cosmoPkgs.<pkgsAttr>.overrideAttrs (oa: {
-  # …per-binary quirks (configureFlags, postPatch, env)…
-  postFixup = (oa.postFixup or "") + ''
-    ${cs.cosmocc}/bin/apelink \
-      -V ${toString cs.platformBits.windows} \
-      -o $out/bin/<name>.exe \
-      $out/bin/<name>
-    rm -f $out/bin/<name>
-  '';
-})
+unpins-lib.lib.cosmoApelink pkgs { binName = "<name>"; }
+  (cosmoPkgs.<pkgsAttr>.overrideAttrs (oa: {
+    # …per-binary quirks (configureFlags, postPatch, env, postInstall
+    # cleanup of dangling symlinks…)
+  }))
 ```
+
+`cosmoApelink` is the centralized ELF→PE32+ postFixup. It wraps the
+drv so the postFixup chain ends up as `<consumer cleanup> → <apelink to
+.exe> → <whatever comes after, e.g. withAliases UNPIN_META embed>`.
+Without it, the binary stays an APE polyglot and CI's
+`file -L *.exe` PE32+ check fails.
 
 ```nix
 # <consumer>/flake.nix
