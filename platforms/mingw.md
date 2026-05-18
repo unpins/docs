@@ -161,7 +161,7 @@ Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-
 **Symbol collisions** under multicall — both fixed in `playground/git/`:
 
 - `scalar.c::load_builtin_commands` is a `die("not implemented")` stub that collides with git.c's real implementation once scalar.o is folded in. `playground/git/scalar-rename-load-builtin.patch` renames it to `scalar_load_builtin_commands`; help.c then resolves to git.c's real one (strict improvement).
-- libidn2 (gnulib) exports a global `error` that collides with git's usage.c. Fix: `objcopy --localize-symbol=error libidn2.a` in the libidn2 derivation's postInstall — see `nix-lib/flake.nix`'s `fixes.libidn2.mingwOverlay` for the mingw side and `playground/git/flake.nix`'s `withLocalizedLibidn2` (threaded via `.override`, not as a top-level overlay — overlays at top level invalidate `pkgsBuildHost.stdenv` and force a gcc rebuild) for native.
+- libidn2 (gnulib) exports a global `error` that collides with git's usage.c. Fix: `objcopy --localize-symbol=error libidn2.a` in the libidn2 derivation's postInstall — see `nix-lib/mingw-overlay/libidn2.nix` for the mingw side and `playground/git/flake.nix`'s `withLocalizedLibidn2` (threaded via `.override`, not as a top-level overlay — overlays at top level invalidate `pkgsBuildHost.stdenv` and force a gcc rebuild) for native.
 
 After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhere.
 
@@ -200,6 +200,6 @@ For ffmpeg, drop those codecs (see [../big-packages.md](../big-packages.md)).
 
 ## Why not overlays for per-package fixes
 
-`pkgs.appendOverlays` works on linux runners (the build-host stays cached), but the same pattern on darwin invalidates `pkgsBuildHost.stdenv` and triggers ~30-60 min toolchain rebuilds. We use `drv.override` / `drv.overrideAttrs` inside `fixes.<name>.<platform>` entries instead — see [darwin.md](darwin.md) for the cascade details.
+`pkgs.appendOverlays` works on linux runners (the build-host stays cached), but the same pattern on darwin invalidates `pkgsBuildHost.stdenv` and triggers ~30-60 min toolchain rebuilds. We use `drv.override` / `drv.overrideAttrs` inline in the consumer's `build` / `windowsBuild` closures instead — see [darwin.md](darwin.md) for the cascade details.
 
-The exception is `fixes.<name>.mingwOverlay`: those *are* applied as overlay pieces by `mingwStaticCross`. Safe on mingw because `pkgsBuildHost` of the cross set is linux, so the overlay's `if isMinGW` gate skips the build side entirely.
+The exception is `nix-lib/mingw-overlay/<lib>.nix` (and the analogous `cosmo/`): those *are* applied as overlay pieces by `mingwStaticCross` / `mkPkgsCosmo`. Safe on mingw because `pkgsBuildHost` of the cross set is linux, so the overlay's `if isMinGW` gate skips the build side entirely.

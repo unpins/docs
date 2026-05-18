@@ -31,7 +31,7 @@ diff -u /tmp/file.c.orig /tmp/file.c.new \
 
 Don't run a one-shot script in the consumer flake's `postPatch` to mutate the source — emit a patch file and add it to `patches`. The patch file is committed and stays the same across builds; an inline `substituteInPlace` is harder to audit and easier to break in a refactor.
 
-Exception: very short, deterministic substitutions like dropping a single configure-time `-lresolv` probe (`fixes.tmux.native` does this). When the change is one `substituteInPlace --replace-fail`, inline is fine.
+Exception: very short, deterministic substitutions like dropping a single configure-time `-lresolv` probe (tmux's `build` closure does this for darwin). When the change is one `substituteInPlace --replace-fail`, inline is fine.
 
 ## Comment patches with *why*, not *what*
 
@@ -53,9 +53,9 @@ Future-you will read the comment when bumping the upstream version; the diff alo
 
 ## Apply patches at the right layer
 
-- **Native and Windows builds need the same change** → put the patch in the consumer flake's `mkStandaloneFlake { build = ...; windowsBuild = ...; }` (apply in both branches), or in the `fixes.<name>.{native,mingw}` registry entries.
-- **Only Windows needs the change** → only in the mingw branch.
-- **It's a fix to a transitive dep (e.g. libgnurx, libpsl)** → if the dep is reused (libpsl is shared by curl, wget, gnupg), add a `fixes.<dep>.mingwOverlay` entry in `nix-lib` so every consumer sees the fixed version. If only one consumer needs it (libgnurx for `file`), keep the override local to that consumer's flake.
+- **Native and Windows builds need the same change** → put the patch in the consumer flake's `mkStandaloneFlake { build = ...; windowsBuild = ...; }` (apply in both branches).
+- **Only Windows needs the change** → only in the `windowsBuild` closure.
+- **It's a fix to a transitive dep (e.g. libgnurx, libpsl)** → if the dep is reused (libpsl is shared by curl, wget, gnupg), add a file at `nix-lib/mingw-overlay/<dep>.nix` (or `native-overlay/<dep>.nix` / `cosmo/<dep>.nix` for the corresponding cross) so every consumer sees the fixed version. If only one consumer needs it (libgnurx for `file`), keep the override local to that consumer's flake.
 
 ## When `LDFLAGS=-all-static` isn't enough (mingw)
 

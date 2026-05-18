@@ -9,7 +9,7 @@ Website: <https://unpins.org>. GitHub org: <https://github.com/unpins>.
 Each top-level directory is an **independent git repo**:
 
 - `unpin/` — Rust CLI installer.
-- `nix-lib/` — shared `mkStandaloneFlake` + cosmocc toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`) + per-target fix directories (`native/`, `mingw/`, `mingw-overlay/`, `cosmo/`).
+- `nix-lib/` — shared `mkStandaloneFlake` + cosmocc toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`) + cross overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`). Per-binary quirks live inline in each consumer flake.
 - One directory per package flake (e.g. `htop/`, `tree/`) — the [packages page](https://unpins.org/packages.html) has the current catalog.
 - `action-build/` — reusable GitHub Actions workflows.
 - `website/` — site source.
@@ -20,7 +20,7 @@ Each pkg dir is its own repo — commit and push there, **not** from the workspa
 ## Non-negotiables
 
 - **Single binary, no companion DLL/dylib/so.** Per-OS allow-list and CI enforcement: [dynamic-link-policy.md](dynamic-link-policy.md).
-- **Per-package quirks live in `nix-lib/{native,mingw,mingw-overlay,cosmo}/<pkg>.nix`** (auto-discovered via `readDir`), not as branching inside the consumer flake. One file per fix per target.
+- **Per-binary quirks live inline in the consumer flake's `build` / `windowsBuild` closures**, not in `nix-lib`. Shared library-dep tweaks consumed transitively by other packages live in `nix-lib/{native-overlay,mingw-overlay,cosmo}/<lib>.nix` (auto-discovered via `readDir`).
 - **GitHub repo description = `flake.nix` `description` verbatim** at repo creation:
   ```
   gh repo create unpins/<pkg> --public \
@@ -34,7 +34,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [contributing.md](contributing.md) — where contributions go (multi-repo), conventions, commit trailer.
 - [adding-a-package.md](adding-a-package.md) — checklist when scaffolding a new package.
 - [releasing.md](releasing.md) — release flow, tag format, common failure modes.
-- [architecture.md](architecture.md) — `mkStandaloneFlake`, per-target fix directories, `nix-lib` scope rule, refactor verification.
+- [architecture.md](architecture.md) — `mkStandaloneFlake`, where per-binary quirks live (inline) vs. transitive-lib overlay fragments (`nix-lib/{native,mingw}-overlay/`, `nix-lib/cosmo/`), `nix-lib` scope rule, refactor verification.
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
 - [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).

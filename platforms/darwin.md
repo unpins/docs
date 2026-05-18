@@ -29,14 +29,14 @@ htop's `configure.ac` doesn't use libtool and handles `--enable-static` **non-st
 
 Diagnosis: dump `config.log`, look at the final `CFLAGS=` / `LDFLAGS=` block. If `-static` is there but not in `NIX_LDFLAGS` / `NIX_CFLAGS_LINK`, the package's own configure added it.
 
-The darwin branch of `fixes.htop.native` (the actual registry entry also handles linux's `lm_sensors`):
+The darwin branch lives inline in `htop/flake.nix`'s `build` closure (the consumer's own flake also handles linux's `lm_sensors`); the `--enable-static` filter is now a generic `lib.filterEnableStaticOnDarwin` helper applied automatically by `mkStandaloneFlake`, so most darwin consumers don't need a manual filter. Manual sketch of the shape:
 
 ```nix
-htop.native = pkgs:
+build = pkgs:
   let p = pkgs.pkgsStatic; in
   if p.stdenv.hostPlatform.isDarwin then
     p.htop.overrideAttrs (old: {
-      configureFlags = p.lib.filter
+      configureFlags = pkgs.lib.filter
         (f: f != "--enable-static" && f != "--disable-shared")
         (old.configureFlags or [ ]);
     })
@@ -66,7 +66,7 @@ Real numbers measured during the htop investigation:
 
 `pkg.override { dep = newDep; }` and `drv.overrideAttrs (…)` produce a new drv whose **own** input hash differs (it rebuilds), but the build inputs (`stdenv`, `cc`, `bintools`, …) it references stay the cached ones — only the package itself rebuilds. That keeps darwin CI in the 5-10 min range instead of 30-60.
 
-**Rule:** fixes for `pkgsStatic-darwin` packages live in `nix-lib`'s `fixes` registry, each returning `drv.override { … }` or `drv.overrideAttrs (…)`. Adding a package = adding a `fixes.<pkg>.native` branch.
+**Rule:** fixes for `pkgsStatic-darwin` packages live inline in the consumer flake's `build = pkgs: ...` closure, each returning `drv.override { … }` or `drv.overrideAttrs (…)`. Adding a package = writing a `build` closure inside `mkStandaloneFlake`.
 
 **Symptom that you've slipped back into the overlay trap:** darwin CI starts building `python3-3.13.x.drv`, `ninja-*.drv`, `compiler-rt-libc-static-…drv` in sequence (10+ min just for python). Audit the path that was changed; you've probably introduced an `appendOverlays` somewhere.
 

@@ -11,7 +11,7 @@ Top-level directories are **independent git repositories**:
 | Path | Purpose |
 | ---- | ------- |
 | `unpin/` | The Rust CLI installer (`unpin install <pkg>`). |
-| `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template, the per-package `fixes` registry, and the bundled Cosmopolitan 4.x toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`). |
+| `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template, cross-overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`) for transitive lib deps, and the bundled Cosmopolitan 4.x toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`). |
 | `<pkg>/` directories | Per-package flakes — one repo per tool. See [unpins.org/packages](https://unpins.org/packages.html) for the current catalog. |
 | `action-build/` | Reusable GitHub Actions workflows that build, verify, and release each flake. |
 | `website/` | Site source (`unpins.org`). |
@@ -36,12 +36,14 @@ manifest                                          — read by action-build for C
 | Argument | Default | Purpose |
 | -------- | ------- | ------- |
 | `self` | required | The consumer flake's `self`. |
-| `name` | required | Package name; also the lookup key in the `fixes` registry. |
-| `build` | `null` | Explicit native builder `pkgs -> drv`. When `null`, the registry's `fixes.<name>.native` is used, falling back to `pkgs.pkgsStatic.<name>`. |
+| `name` | required | Package name (user-facing id / repo slug / binary). |
+| `pkgsAttr` | `name` | nixpkgs attribute name when it differs from `name` (e.g. `gnused`, `gnugrep`, `gnumake`). |
+| `build` | `null` | Explicit native builder `pkgs -> drv`. When `null`, falls back to `pkgs.pkgsStatic.<pkgsAttr>`. |
 | `windowsBuild` | `null` | Explicit Windows builder (mingw, cosmo, or anything that returns a `pkgs -> drv`). When `null`, dispatch falls back to the `windowsCosmo` / `windows` flags below. |
 | `binName` | `name` | Override for `apps.default` when the binary's name differs from the package name. |
 | `nativeBuild` | `true` | Set to `false` for Windows-only packages (no native build is emitted). |
-| `windows` | `false` | Set to `true` to enable the registry's mingw path: `fixes.<name>.mingw` or `(mingwStaticCross pkgs).<name>`. (`windowsBuild` not null also enables it.) |
+| `linuxOnly` | `false` | Suppresses every Darwin attr from `packages.<sys>` (kmod, util-linux, shadow, procps-ng — Linux-kernel-only tools). |
+| `windows` | `false` | Set to `true` to enable the plain mingw cross path: `(mingwStaticCross pkgs).<pkgsAttr>`. (`windowsBuild` not null also enables it.) |
 | `windowsCosmo` | `false` | Set to `true` to route the Windows build through `mkPkgsCosmo` (cosmocc as cross-stdenv). Per-package quirks live in `nix-lib/cosmo/<name>.nix`. Used when the mingw cross is infeasible — see [platforms/cosmocc.md](platforms/cosmocc.md). |
 | `package_data` | `true` | Tells action-build to also publish `result/share` as a `.tar.zst`. |
 | `bootstrap_naming` | `false` | Used by `unpin/` itself for the bootstrap asset name convention. |
@@ -51,23 +53,21 @@ manifest                                          — read by action-build for C
 
 The template normalizes single- vs multi-output drvs into a single `result/` symlink so action-build's verifier finds the binary at `result/bin/<pkg>` regardless of the upstream output structure. It also runs `dropSharedLibs` to remove stray `.so`/`.dylib`/`.dll`/`.dll.a`/`.la` artifacts from any output that fell back to non-static dependencies (a no-op for `pkgsStatic` outputs, which already produce only `.a`).
 
-## The `fixes` registry
+## Where per-target quirks live
 
-`nix-lib/flake.nix` exposes a name-keyed `fixes` table with up to three platform sub-keys:
+Per-binary quirks are **inline in the consumer flake** as `build = pkgs: ...` / `windowsBuild = pkgs: ...` closures, not in `nix-lib`. For substantial multi-step recipes (multicall via post-link `ld -r`, big patch sets, ...), the consumer flake calls `import ./multicall.nix { lib = pkgs.lib // unpins-lib.lib; } pkgs` from a sibling file.
 
-```nix
-fixes = {
-  <name>.native       = pkgs: drv;          # terminal native (pkgsStatic) build
-  <name>.mingw        = pkgs: drv;          # terminal mingw cross build
-  <name>.mingwOverlay = self: super: drv;   # transitive dep; consumed by mingwStaticCross
-};
+`nix-lib` retains three overlay-fragment directories for **transitive lib deps** — quirks that one consumer would otherwise have to apply to every other consumer's transitive closure:
+
+```
+nix-lib/native-overlay/<lib>.nix      # cross-darwin / pkgsStatic-linux lib fixes (dav1d, libevent, libopus)
+nix-lib/mingw-overlay/<lib>.nix       # spliced into mingwStaticCross via overlay (libidn2, libpsl, ncurses)
+nix-lib/cosmo/<lib>.nix               # spliced into mkPkgsCosmo (coreutils tree + helpers)
 ```
 
-`mkStandaloneFlake` looks up `fixes.<name>.{native,mingw}` automatically. `mingwOverlay` entries are stitched into the cross package set by `mingwStaticCross`, so curl, ffmpeg, etc. transparently see the fixed `libidn2` / `libpsl` / etc.
+Each is auto-discovered via `readDir`. Add a new file here only when the fix is consumed by ≥ 2 packages transitively (e.g. ffmpeg + a future consumer both wanting a static `dav1d`); a one-binary quirk belongs in that binary's flake.
 
-**Add platform branching as a registry entry, not as a conditional inside the consumer flake.** Consumer flakes should only set `build` / `windowsBuild` when the build is fully custom (Vim's `Make_ming.mak`, curl's Schannel build, gvim's Win32 GUI, etc.).
-
-Examples currently in the registry: `htop.native` (darwin `--enable-static` filter), `tmux.native` (darwin dep-prune + resolv removal), `coreutils.native` (drop multicall symlinks), `tar.native` / `tar.mingw` (rename `bsdtar` → `tar`, drop the other libarchive utils), `jq.mingw` (winpthread + `-all-static` + `bin/jq.exe` reference fix), `libidn2.mingwOverlay` and `libpsl.mingwOverlay` (curl static chain).
+`mingw-overlay` entries are stitched into `mingwStaticCross pkgs` as overlay fragments, so curl, ffmpeg, etc. transparently see the fixed `libidn2` / `libpsl` / `ncurses`. The `cosmo/` directory has the analogous role for `mkPkgsCosmo`.
 
 ## `mingwStaticCross pkgs`
 
@@ -75,7 +75,7 @@ A helper in `nix-lib` that returns `pkgsCross.mingwW64` plus an overlay that:
 
 1. Wraps the stdenv with `makeStaticLibraries` — injects `--enable-static --disable-shared` for autotools, `-DBUILD_SHARED_LIBS=OFF` for cmake, `-Ddefault_library=static` for meson into every `mkDerivation`.
 2. Sets `stdenv.hostPlatform.isStatic = true`. A small lie at the platform-attr level (not a re-instantiation) — upstream recipes key off `isStatic` directly (`zlib`'s `shared ? !isStatic`, etc.) and produce `.a`-only outputs.
-3. Stitches in every `fixes.<name>.mingwOverlay` entry as part of the overlay.
+3. Stitches in every `nix-lib/mingw-overlay/<lib>.nix` entry as part of the overlay.
 
 `pkgsCross.mingwW64.pkgsStatic` is **not** used because it re-instantiates nixpkgs with `crossSystem.isStatic = true` → cross GCC rebuilds against modified `windows.mingw_w64`/`mcfgthread` configureFlags → ~30 min toolchain rebuild for byte-identical output.
 
@@ -89,12 +89,12 @@ Used by consumer flakes (e.g. `curl`) that need fine control over `staticDeps`, 
 
 Every package flake calls `mkStandaloneFlake`. Beyond that, packages tap into `nix-lib` at different depths:
 
-- **Pure default** — `tree`, `jq`: just `pkgs.pkgsStatic.<pkg>`, optionally a `fixes.<name>.mingw` entry for transitive quirks.
-- **Registry-only fixes** — `htop`, `tmux`, `coreutils`, `tar`: `pkgsStatic` works on Linux but needs small overrides on darwin or mingw. The override lives in `fixes.<name>.{native,mingw}`.
-- **`mingwStaticBinary` + the `mingwOverlay` chain** — `curl` (libpsl/libidn2/libunistring chain), `playground/ffmpeg` (codec libs). Substantial static-dep chains that benefit from the full toolbox.
+- **Pure default** — `sed`, `jq`: just rely on the `pkgs.pkgsStatic.<pkgsAttr>` fallback; no `build` / `windowsBuild` needed if the upstream attr cross-builds clean.
+- **Inline overrides** — `htop`, `tmux`, `coreutils`, `tar`, `xz`, `nano`, …: `pkgsStatic` works but needs small overrides on darwin or mingw. The override lives inline in the consumer's `build` / `windowsBuild` closure.
+- **`mingwStaticBinary` + the mingw overlay chain** — `curl` (libpsl/libidn2/libunistring chain), `ffmpeg` (codec libs). Substantial static-dep chains that benefit from the full toolbox; the transitive lib quirks sit in `nix-lib/mingw-overlay/`.
 - **Custom `build` / `windowsBuild`** — `vim`, `gvim`, `file`: don't fit `pkgsStatic.<name>` at all (Vim's `Make_ming.mak`, gvim's GTK2 stack, file's libgnurx rebuild). The consumer flake supplies the build directly.
 
-**Rule:** add a helper to `nix-lib` when (a) the pattern is non-trivial enough to bury in a function and (b) there are ≥ 2 callers *today*, not hypothetical. 1-line `overrideAttrs` wrappers fail both bars. If a new package matches cross-mingw-with-static-deps (curl/ffmpeg pattern), it joins the club; otherwise leave the override inline in the consumer flake.
+**Rule:** add a file to `nix-lib/{native,mingw}-overlay/` or `nix-lib/cosmo/` only when the fix is for a transitive **library** dep that ≥ 2 binaries pull in. Per-binary quirks belong inline in the consumer flake — even if it's a 30-line `windowsBuild` closure.
 
 ## Verifying refactors
 

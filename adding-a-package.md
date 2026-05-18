@@ -54,7 +54,7 @@ file -L result/bin/<pkg>                             # expect: ELF 64-bit ... st
 ./result/bin/<pkg> --version                          # smoke test
 ```
 
-If `pkgsStatic` fails on darwin (autoconf link probes), add a `fixes.<pkg>.native` entry in `nix-lib/flake.nix` rather than branching inside the consumer flake. See [platforms/darwin.md](platforms/darwin.md) for the canonical failure modes.
+If `pkgsStatic` fails on darwin (autoconf link probes), add a `build = pkgs: ...` closure to the consumer's `mkStandaloneFlake` call with the needed overrides — don't branch on system inside it; `mkStandaloneFlake` already handles per-target dispatch. See [platforms/darwin.md](platforms/darwin.md) for the canonical failure modes.
 
 ## 6. Build Windows
 

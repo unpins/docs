@@ -37,11 +37,11 @@ That means **no companion DLLs** alongside the `.exe`, including `libgcc_s_seh-1
 
 ## When the upstream build picks up a forbidden library
 
-Patch it out in the `fixes` registry. The binary must satisfy the policy; don't relax the verifier.
+Patch it out in the consumer's `build` / `windowsBuild` closure (or in `nix-lib/{native,mingw}-overlay/<lib>.nix` if the offender is a transitive lib dep). The binary must satisfy the policy; don't relax the verifier.
 
 Examples:
 
-- `tmux`'s `configure.ac` links `-lresolv` on darwin (for `b64_ntop`). darwin's `libresolv.9.dylib` is not in Apple's allow-list. Solution: `postPatch` in `fixes.tmux.native` removes the `-lresolv` probe; tmux falls back to its bundled `compat/base64.c`.
+- `tmux`'s `configure.ac` links `-lresolv` on darwin (for `b64_ntop`). darwin's `libresolv.9.dylib` is not in Apple's allow-list. Solution: a `postPatch` inside `tmux/flake.nix`'s `build` closure removes the `-lresolv` probe; tmux falls back to its bundled `compat/base64.c`.
 - `file`'s `libgnurx` on mingw ships only a DLL + import library. The nix-store-supplied `libgnurx.a` is a symlink to the import lib, so even with `-all-static` the result imports `libgnurx-0.dll`. Solution: rebuild `regex.o` into a real static archive via `ar rcs` in the consumer flake's `windowsBuild`.
 - See [platforms/mingw.md](platforms/mingw.md) for the libidn2 / libpsl / libunistring / libiconv chain that powers curl, wget, gnupg.
 
