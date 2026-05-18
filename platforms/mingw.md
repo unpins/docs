@@ -202,4 +202,4 @@ For ffmpeg, drop those codecs (see [../big-packages.md](../big-packages.md)).
 
 `pkgs.appendOverlays` works on linux runners (the build-host stays cached), but the same pattern on darwin invalidates `pkgsBuildHost.stdenv` and triggers ~30-60 min toolchain rebuilds. We use `drv.override` / `drv.overrideAttrs` inline in the consumer's `build` / `windowsBuild` closures instead — see [darwin.md](darwin.md) for the cascade details.
 
-The exception is `nix-lib/mingw-overlay/<lib>.nix` (and the analogous `cosmo/`): those *are* applied as overlay pieces by `mingwStaticCross` / `mkPkgsCosmo`. Safe on mingw because `pkgsBuildHost` of the cross set is linux, so the overlay's `if isMinGW` gate skips the build side entirely.
+The exception is `nix-lib/mingw-overlay/<lib>.nix` (and the analogous `cosmo/`): those *are* applied as overlay pieces against the root `windowsPkgs`, from which both `pkgsCross.mingwW64` and `pkgsCross.cosmo` descend. Safe on mingw because `pkgsBuildHost` of the cross set is linux, so the overlay's `if isMinGW` gate skips the build side entirely.

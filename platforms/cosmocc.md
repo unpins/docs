@@ -6,11 +6,10 @@ Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page 
 
 ## Status
 
-The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Three entry points:
+The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Two entry points:
 
-- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. Used by `playground/{bash,coreutils,dash,links,git}` for in-tree prefix-tree builds.
-- **`unpins-lib.lib.cosmoStaticCross pkgs`** — symmetric to `lib.mingwStaticCross pkgs` and `pkgs.pkgsStatic`. Takes a build-host `pkgs` and returns the cosmo cross set. **The consumer-facing API** — catalog packages access it from a `./cosmo.nix` sidecar invoked via `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }`. See [§ The cosmo cross set](#the-cosmo-cross-set) below.
-- **`unpins-lib.lib.mkPkgsCosmo { system?, targetArch? }`** — low-level constructor (no pkgs arg). `cosmoStaticCross` is built on top of it. Used directly only when you need to override `system` or `targetArch` explicitly — e.g. `playground/perl` builds with the default `{ }`.
+- **`pkgs.pkgsCross.cosmo`** — first-class nixpkgs cross target, symmetric to `pkgs.pkgsCross.mingwW64`. The `pkgs` here is `mkStandaloneFlake`'s `windowsPkgs`, which `applyPatches`'s `nix-lib/cosmo-lib-systems.patch` onto nixpkgs (registers `cosmo` as a kernel + `examples.cosmo` crossSystem) and wires `config.replaceCrossStdenv` + the `nix-lib/cosmo/` library overlay. **The consumer-facing API** — catalog packages access it from a `./cosmo.nix` sidecar invoked via `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }`. See [§ The cosmo cross set](#the-cosmo-cross-set) below. The legacy `unpins-lib.lib.cosmoStaticCross pkgs` is a passthrough alias kept for API symmetry with `lib.mingwStaticCross`.
+- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. Used by `playground/{bash,coreutils,dash,links,git}` for in-tree prefix-tree builds — the older POC pattern that pre-dates first-class cross.
 
 Ports in `playground/` (older `cosmoStdenv`-based POCs, kept around for reference):
 
@@ -90,7 +89,7 @@ These cost time when packaging `cosmocc` itself or a cosmo-built tool.
 
 So derivations can list cosmo-built libs in `buildInputs` directly without any prefix-tree dance — though the prefix-tree pattern (`bash`/`coreutils`) still works because the underlying single-arch driver honors `$COSMOS`.
 
-The returned value also carries passthru attrs: `.cosmocc` (raw zip dir, used by `playground/{dash,git}` for direct `CC=cosmocc` invocations), `.platformBits`, `.mkCrossWiring` (consumed internally by `mkPkgsCosmo`).
+The returned value also carries passthru attrs: `.cosmocc` (raw zip dir, used by `playground/{dash,git}` for direct `CC=cosmocc` invocations), `.platformBits`, `.mkCrossWiring` (consumed internally by `replaceCrossStdenv` in `windowsPkgs`).
 
 ```nix
 inputs.unpins-lib.url = "github:unpins/nix-lib";
@@ -159,7 +158,7 @@ Consumers can re-enable per-flag via `hardeningEnable = [ "stackprotector" ]` if
 
 ### Deliberately NOT in `cosmoStdenv`
 
-- **No per-package config recipes.** Each port writes its own `buildPhase` / `installPhase` / `apelink -V` step. The `mkPkgsCosmo` set (next section) is the answer when you want regular nixpkgs derivations rebuilt against cosmocc — but `cosmoStdenv` itself stays minimal.
+- **No per-package config recipes.** Each port writes its own `buildPhase` / `installPhase` / `apelink -V` step. `pkgs.pkgsCross.cosmo` (next section) is the answer when you want regular nixpkgs derivations rebuilt against cosmocc — but `cosmoStdenv` itself stays minimal.
 
 ### Arch coverage
 
@@ -168,14 +167,14 @@ Consumers can re-enable per-flag via `hardeningEnable = [ "stackprotector" ]` if
 <a name="the-cosmo-cross-set"></a>
 ## The cosmo cross set
 
-`unpins-lib.lib.cosmoStaticCross pkgs` returns a full nixpkgs package set re-evaluated with cosmocc wired in as a cross-toolchain. Symmetric to `lib.mingwStaticCross pkgs` and `pkgs.pkgsStatic`. Consumers reach it from a `./cosmo.nix` sidecar.
+`pkgs.pkgsCross.cosmo` is a first-class nixpkgs cross target — exactly the same shape as `pkgs.pkgsCross.mingwW64`. The `pkgs` flowing into `<consumer>/cosmo.nix` is `mkStandaloneFlake`'s `windowsPkgs`, where the cosmo wiring lives. Consumers reach it from a `./cosmo.nix` sidecar.
 
 ```nix
 # <consumer>/cosmo.nix
 { unpins-lib }:
 pkgs:
 let
-  cosmoPkgs = unpins-lib.lib.cosmoStaticCross pkgs;
+  cosmoPkgs = unpins-lib.lib.cosmoStaticCross pkgs;  # = pkgs.pkgsCross.cosmo
 in
 unpins-lib.lib.cosmoApelink pkgs { binName = "<name>"; }
   (cosmoPkgs.<pkgsAttr>.overrideAttrs (oa: {
@@ -200,12 +199,11 @@ outputs = { self, unpins-lib }:
   };
 ```
 
-Mechanism (internally, `cosmoStaticCross` calls `mkPkgsCosmo` with `system`/`targetArch` derived from `pkgs.stdenv.buildPlatform`):
+Mechanism (all four pieces live in `mkStandaloneFlake`'s `windowsPkgs`, the single root from which `pkgsCross.mingwW64` and `pkgsCross.cosmo` both descend):
 
-1. **`applyPatches` on nixpkgs source** — adds a `cosmo` kernel to `lib/systems/{parse,inspect}.nix` via `nix-lib/cosmo-lib-systems.patch` (12 lines). This makes `crossSystem.config = "${arch}-unknown-cosmo-gnu"` parseable + exposes `isCosmo` as a predicate.
-2. **`crossSystem.config = "${targetArch}-unknown-cosmo-gnu"` + `libc = null`** — tells nixpkgs to construct a cross set without trying to find/build a libc derivation.
-3. **`config.replaceCrossStdenv`** — when nixpkgs builds the cross stdenv, swap its cc/bintools for cosmocc's via `mkCrossWiring { buildPackages, baseStdenv, targetPrefix, targetArch }`. The wiring also wraps the result with `stdenvAdapters.makeStaticLibraries` (cosmocc can't emit `.so`) and adds a setup-hook that patches `config.sub` to accept `cosmo-gnu` (no `gnu-config` derivation override, so xgcc bootstrap stays cached).
-4. **Library-only overlay fragments** — `nix-lib/cosmo/<lib>.nix` files (`libedit`, `libevent`, `ncurses`, `openssl`) are auto-discovered. Each is `{ lib }: final: prev: { ... }`, gated on `prev.stdenv.hostPlatform.isCosmo` so it only affects the cross set, not `buildPackages` (which would invalidate cache.nixos.org hashes). These libs are needed cosmo-patched because **other packages depend on them transitively**; per-binary recipes live inline in the consumer flake's `cosmo.nix` sidecar, not in this directory.
+1. **`applyPatches` on nixpkgs source** — `nix-lib/cosmo-lib-systems.patch` (~20 lines) adds a `cosmo` kernel to `lib/systems/parse.nix`, the `isCosmo` predicate to `lib/systems/inspect.nix`, and `cosmo = { config = "x86_64-unknown-cosmo-gnu"; libc = null; }` to `lib/systems/examples.nix`. The last piece is what makes `pkgs.pkgsCross.cosmo` resolvable.
+2. **`config.replaceCrossStdenv`** — guarded on `baseStdenv.hostPlatform.isCosmo`: when nixpkgs builds the cosmo cross stdenv, swap its cc/bintools for cosmocc's via `mkCrossWiring { buildPackages, baseStdenv, targetPrefix, targetArch }`. The wiring also wraps the result with `stdenvAdapters.makeStaticLibraries` (cosmocc can't emit `.so`) and adds a setup-hook that patches `config.sub` to accept `cosmo-gnu` (no `gnu-config` derivation override, so xgcc bootstrap stays cached). For non-cosmo crosses (mingwW64), the guard returns `baseStdenv` unchanged — drv hashes stay byte-identical to a vanilla `import nixpkgs`.
+3. **Library-only overlay fragments** — `nix-lib/cosmo/<lib>.nix` files (`libedit`, `libevent`, `ncurses`, `openssl`) are auto-discovered and applied at the `windowsPkgs` root. Each is `{ lib }: final: prev: { ... }`, gated on `prev.stdenv.hostPlatform.isCosmo` so it only affects `pkgsCross.cosmo`, not `pkgsCross.mingwW64` (whose drv hashes stay unchanged) or `buildPackages` (which would invalidate cache.nixos.org hashes). These libs are cosmo-patched because **other packages depend on them transitively**; per-binary recipes live inline in the consumer flake's `cosmo.nix` sidecar, not in this directory.
 
 ```nix
 # nix-lib/cosmo/ncurses.nix — transitive lib overlay (kept in nix-lib)
@@ -221,13 +219,12 @@ if (prev.stdenv.hostPlatform.isCosmo or false) then {
 
 ### When to use each entry point
 
-- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — currently `playground/{bash,coreutils,dash,links,git}`. The pattern matches `superconfigure`'s shape.
-- **`cosmoStaticCross`** for catalog packages — "I just want `pkgs.openssl` cosmo-flavoured" — when the package builds cleanly via autotools and you only need a per-binary quirk file in `<consumer>/cosmo.nix`. Most packages need `NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1` because their `meta.platforms` doesn't list cosmo.
-- **`mkPkgsCosmo`** rarely. Use only when overriding `system` or `targetArch` explicitly (e.g. building aarch64-cosmo from x86_64-linux), since `cosmoStaticCross` derives both from `pkgs.stdenv.buildPlatform`.
+- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — currently `playground/{bash,coreutils,dash,links,git}`. The pattern matches `superconfigure`'s shape and pre-dates first-class cross.
+- **`pkgs.pkgsCross.cosmo`** for catalog packages — "I just want `pkgs.openssl` cosmo-flavoured" — when the package builds cleanly via autotools and you only need a per-binary quirk file in `<consumer>/cosmo.nix`. Most packages need `NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1` because their `meta.platforms` doesn't list cosmo.
 
 ### Cross-arch caveat
 
-`targetArch` (auto-derived by `cosmoStaticCross`) controls the cosmocc single-arch driver. Within a single `system` you can swap the target (`x86_64` ↔ `aarch64`) by calling `mkPkgsCosmo { system = "x86_64-linux"; targetArch = "aarch64"; }` directly — the cosmocc 4.0.2 zip ships both drivers. `mkCrossWiring` synthesizes the correct arch-prefixed shims on demand.
+The `examples.cosmo` crossSystem hard-codes `x86_64-unknown-cosmo-gnu`. The cosmocc 4.0.2 zip ships both `x86_64` and `aarch64` single-arch drivers and `mkCrossWiring` synthesizes the right arch-prefixed shims, so a second `examples.cosmo-aarch64` entry would unlock that target — not added yet because no catalog package needs it.
 
 ### Growing the lib overlay
 

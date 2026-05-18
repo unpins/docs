@@ -9,7 +9,7 @@ Website: <https://unpins.org>. GitHub org: <https://github.com/unpins>.
 Each top-level directory is an **independent git repo**:
 
 - `unpin/` — Rust CLI installer.
-- `nix-lib/` — shared `mkStandaloneFlake` + cosmocc toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`) + cross overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`). Per-binary quirks live inline in each consumer flake.
+- `nix-lib/` — shared `mkStandaloneFlake` + cosmocc toolchain (`lib.cosmoStdenv`; wires `pkgs.pkgsCross.cosmo` as a first-class cross target inside `windowsPkgs`) + cross overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`). Per-binary quirks live inline in each consumer flake.
 - One directory per package flake (e.g. `htop/`, `tree/`) — the [packages page](https://unpins.org/packages.html) has the current catalog.
 - `action-build/` — reusable GitHub Actions workflows.
 - `website/` — site source.
@@ -40,7 +40,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
 - [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, blocked packages.
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
-- [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + `lib.mkPkgsCosmo` cross overlay.
+- [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + first-class `pkgs.pkgsCross.cosmo` (wired via `applyPatches` + `replaceCrossStdenv` in `windowsPkgs`).
 - [big-packages.md](big-packages.md) — ffmpeg-class playbook; static GTK2 recipe.
 - [templates/](templates/) — minimal `flake.nix`, build/release workflow files.
 

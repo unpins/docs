@@ -11,7 +11,7 @@ Top-level directories are **independent git repositories**:
 | Path | Purpose |
 | ---- | ------- |
 | `unpin/` | The Rust CLI installer (`unpin install <pkg>`). |
-| `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template, cross-overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`) for transitive lib deps, and the bundled Cosmopolitan 4.x toolchain (`lib.cosmoStdenv`, `lib.mkPkgsCosmo`). |
+| `nix-lib/` | Shared Nix helpers: `mkStandaloneFlake` template, cross-overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`) for transitive lib deps, and the bundled Cosmopolitan 4.x toolchain (`lib.cosmoStdenv`; also wires `pkgs.pkgsCross.cosmo` as a first-class cross target inside `windowsPkgs`). |
 | `<pkg>/` directories | Per-package flakes — one repo per tool. See [unpins.org/packages](https://unpins.org/packages.html) for the current catalog. |
 | `action-build/` | Reusable GitHub Actions workflows that build, verify, and release each flake. |
 | `website/` | Site source (`unpins.org`). |
