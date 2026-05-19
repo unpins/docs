@@ -176,18 +176,32 @@ pkgs:
 let
   cosmoPkgs = unpins-lib.lib.cosmoStaticCross pkgs;  # = pkgs.pkgsCross.cosmo
 in
-unpins-lib.lib.cosmoApelink pkgs { binName = "<name>"; }
-  (cosmoPkgs.<pkgsAttr>.overrideAttrs (oa: {
-    # …per-binary quirks (configureFlags, postPatch, env, postInstall
-    # cleanup of dangling symlinks…)
-  }))
+cosmoPkgs.<pkgsAttr>.overrideAttrs (oa: {
+  # …per-binary quirks (configureFlags, postPatch, env, postInstall
+  # cleanup of dangling symlinks…)
+})
 ```
 
-`cosmoApelink` is the centralized ELF→PE32+ postFixup. It wraps the
-drv so the postFixup chain ends up as `<consumer cleanup> → <apelink to
-.exe> → <whatever comes after, e.g. withAliases UNPIN_META embed>`.
-Without it, the binary stays an APE polyglot and CI's
-`file -L *.exe` PE32+ check fails.
+The ELF → PE32+ rename happens automatically: the cosmo cross stdenv
+ships a `preFixupHook` (`nix-lib/cosmo-apelink-hook.sh`) that walks
+`$out/bin`, apelinks every cosmocc-emitted ELF to `<name>.exe`, and
+rewires same-directory symlinks (e.g. ncurses' `reset → tset` becomes
+`reset.exe → tset.exe`). It's **fail-loud**: if a binary was stripped
+during build (apelink needs `.symtab`), the build fails with a
+specific message and fix recipe (`installFlags = [ "STRIP=true" ]`
+or `dontCosmoApelink = true` to opt out).
+
+Phase contract — consumer code runs at these points relative to the hook:
+- `postInstall` → BEFORE auto-apelink (binaries still `<name>`)
+- `postFixup`   → AFTER  auto-apelink (binaries now `<name>.exe`)
+
+Cleanup of unwanted binaries (e.g. bash's `sh` symlink) typically
+goes in `postFixup` referring to `<name>.exe`. The exception is when
+upstream's own fixupPhase touches the file (e.g. shebang rewriting on
+scripts that depend on the renamed binary) — then move it to
+`postInstall` to act before fixup. `lib.withAliases { primary =
+"<name>.exe"; ... }` works as-is since its UNPIN_META embed runs in
+postFixup (after the hook).
 
 ```nix
 # <consumer>/flake.nix
