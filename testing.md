@@ -57,23 +57,23 @@ Per-package additions are listed in each section.
 
 - **Targets:** all 5.
 - **Build:** hand-rolled Makefile (no autotools).
-- **Test cmd:** `make test` — minimal regression checks against fixtures in `tests/`.
-- **Extra deps:** baseline only.
-- **Linux quirks:** none.
-- **macOS quirks:** none.
-- **Windows quirks:** upstream tree has a small Windows port; our `tree-mingw.patch` covers pwd/grp/langinfo — test suite against that patch is uncharted, validate during #4 wiring.
-- **Confidence:** high (linux/mac), low (windows — patch interaction).
+- **Test cmd:** **none upstream.** Mike Baker's tree (the 2.x reboot) ships no test harness — no `make test`, no `tests/` dir. There's nothing to invoke as a release gate beyond build + smoke.
+- **Extra deps:** n/a.
+- **Linux quirks:** n/a.
+- **macOS quirks:** n/a.
+- **Windows quirks:** uses cosmocc, not mingw, because `msvcrt readdir` silently drops filenames outside the active code page; cosmocc's libc exposes UTF-8 from the Win32 wide-char APIs. Any future test harness must include CJK/emoji/Latin-1-accent fixture filenames to catch a regression here.
+- **Confidence:** n/a — no suite to run.
 
 ### file (5.x)
 
 - **Targets:** all 5.
 - **Build:** autotools.
-- **Test cmd:** `make check` — exercises magic.mgc lookup + a handful of detection cases.
+- **Test cmd:** `make check` — exercises detection of a handful of fixture files under `tests/`.
 - **Extra deps:** baseline only. Recursive call to `file` itself.
-- **Linux quirks:** our patch installs `magic.mgc` relative to the binary (see `docs/runtime-data.md`); tests need to find it via that path, not the autotools install path. Likely needs a `MAGIC=` env override in the test wrapper.
-- **macOS quirks:** same as Linux — relative-to-exe lookup uses `_NSGetExecutablePath` (our patch).
-- **Windows quirks:** libgnurx static — uncharted, validate during #4.
-- **Confidence:** medium — the magic.mgc-relative-path interaction needs explicit handling in `doCheck`.
+- **Linux quirks:** the binary loads its magic database from an embedded buffer when no `-m` / `$MAGIC` is given (see `file-embed-magic.patch`). `make check` invokes the build-tree `file` with the freshly compiled `magic/magic.mgc` via the `-m` path inside `check_PROGRAMS`, so it exercises the disk path, not the embed. To also cover the embed path explicitly, run the binary on a fixture with no `-m` and `$MAGIC` unset and confirm `--version` reports `magic file from (embedded)`.
+- **macOS quirks:** same. The single-binary path on darwin also depends on `--disable-shared` reaching configure (nix-lib's `filterEnableStaticOnDarwin` strips it; we push it back via `preConfigure`'s `configureFlagsArray`). A regression there would leak `libmagic.1.dylib` next to the binary — check `otool -L` in the test wrapper.
+- **Windows quirks:** libgnurx static — the recompile-regex.o-as-real-`.a` recipe in `flake.nix`. Uncharted under `make check`; validate during #4.
+- **Confidence:** medium — embed branch isn't exercised by upstream's harness, has to be added.
 
 ### tar (libarchive `bsdtar`, 3.x)
 
