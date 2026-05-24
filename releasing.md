@@ -6,6 +6,48 @@ Each unpins package repo ships two workflow files from [`templates/`](templates/
 
 - `.github/workflows/release.yml` — **Release**. `workflow_dispatch`-only. Computes the next tag, pushes it, then delegates to `action-build`'s `release.yml` reusable workflow, which builds again on the tag and creates the GitHub release with the binaries attached.
 
+## Pre-release review checklist
+
+Run through this before dispatching the Release workflow. Goal is one quick pass that catches the things CI doesn't already enforce.
+
+### Build all targets locally
+
+Native runners only exist for the host you have. Everything else must build via cross from a host you do have. Hash matches CI for cross-from-x86_64-linux and cross-within-darwin; differs for cross-from-x86_64-linux to aarch64-linux/armv7l-linux (those are CI-native, locally cross-only). Goal is "compiles" — bit-identity is CI's job.
+
+From `x86_64-linux`:
+
+```bash
+nix build .#packages.x86_64-linux.default \
+          .#packages.x86_64-linux.linux-i686 \
+          .#packages.x86_64-linux.linux-ppc64le \
+          .#packages.x86_64-linux.linux-riscv64 \
+          .#packages.x86_64-linux.windows-x86_64 \
+          --no-link --print-out-paths --impure
+```
+
+`aarch64-linux` and `armv7l-linux` aren't exposed as cross-from-x86_64 attrs on the flake (CI does them native on `ubuntu-24.04-arm`). For local-only sanity, do it via an ad-hoc `--impure --expr` that targets `pkgsCross.aarch64-multiplatform.pkgsStatic.<pkg>` and `pkgsCross.muslpi.pkgsStatic.<pkg>` and re-applies any consumer overrides (patches, postBuild, etc.). Not bit-identical to CI but confirms the source cross-compiles.
+
+From an Intel Mac (`x86_64-darwin`):
+
+```bash
+nix build .#packages.x86_64-darwin.default --no-link --print-out-paths
+# aarch64-darwin via ad-hoc cross expr if the flake has overrides;
+# otherwise just `pkgs.pkgsCross.aarch64-darwin.pkgsStatic.<pkg>`.
+```
+
+`aarch64-darwin` native still needs Apple Silicon (CI `macos-14`). Local cross-from-Intel is good enough for compile-sanity.
+
+### README must declare
+
+- **Windows variant**: `mingw` or `cosmo`, with a one-sentence reason if `cosmo` (e.g. `tree`: `msvcrt readdir` drops CJK filenames silently — see [platforms/cosmocc.md](platforms/cosmocc.md)).
+- **Embedded resources**: list anything that's baked into the binary instead of shipped as a sibling data file (terminfo, magic database, zoneinfo, syntax files). If a resource could not be embedded, state which one and why (size, runtime constraint, no upstream support).
+- **Disabled features / `--disable-*` flags**: each one with a one-sentence reason (missing on musl, breaks static link, drags in a dynamic dep, etc.).
+- **Platforms excluded** from the matrix (`linuxOnly`, Windows-only, no aarch64-darwin, etc.) with the reason (kernel-only API, infeasible static toolchain, …).
+
+### CI green
+
+The Build workflow on `main` must be green across all matrix jobs before dispatching Release. CI runners cover the native paths your local box can't reach: `aarch64-linux` + `armv7l-linux` on `ubuntu-24.04-arm`, `aarch64-darwin` on `macos-14`, Windows on `windows-latest`.
+
 ## Cutting a release
 
 After the Build workflow has gone green on `main`:
@@ -34,8 +76,7 @@ To pick up a new upstream version:
 ```bash
 cd <pkg>
 nix flake update                                      # bumps nixpkgs + nix-lib pins
-nix build .#packages.x86_64-linux.default             # verify native still builds
-nix build .#packages.x86_64-linux.windows-x86_64      # if windows-enabled
+# Run the full local cross matrix from the pre-release checklist above.
 git add flake.lock
 git commit -m "Bump <pkg> to <new version>"
 git push
