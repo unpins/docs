@@ -25,7 +25,9 @@ nix build .#packages.x86_64-linux.default \
           --no-link --print-out-paths --impure
 ```
 
-`aarch64-linux` and `armv7l-linux` aren't exposed as cross-from-x86_64 attrs on the flake (CI does them native on `ubuntu-24.04-arm`). For local-only sanity, do it via an ad-hoc `--impure --expr` that targets `pkgsCross.aarch64-multiplatform.pkgsStatic.<pkg>` and `pkgsCross.muslpi.pkgsStatic.<pkg>` and re-applies any consumer overrides (patches, postBuild, etc.). Not bit-identical to CI but confirms the source cross-compiles.
+`aarch64-linux` and `armv7l-linux` aren't exposed as cross-from-x86_64 attrs on the flake (CI does them native on `ubuntu-24.04-arm`). For local-only sanity, do it via an ad-hoc `--impure --expr` that targets `pkgsCross.aarch64-multiplatform.pkgsStatic.<pkg>` and `pkgsCross.armv7l-hf-multiplatform.pkgsStatic.<pkg>` and re-applies any consumer overrides (patches, postBuild, etc.). Not bit-identical to CI but confirms the source cross-compiles.
+
+(Note: `pkgsCross.muslpi` was the previous armv7l proxy but it actually targets armv6l — Raspberry Pi 1 / Zero. armv6 lacks hardware 64-bit atomics, so anything that touches `_Atomic uint64_t` links against `libatomic` and breaks the static-only chain. armv7l-hf-multiplatform is the right proxy: hardware float, hardware 64-bit atomics via LDREXD/STREXD, matches what CI's `ubuntu-24.04-arm` runner exercises.)
 
 From an Intel Mac (`x86_64-darwin`):
 
