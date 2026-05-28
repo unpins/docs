@@ -72,6 +72,8 @@ nix-lib/cosmo/<lib>.nix               # spliced into cosmoStaticCross (libedit, 
 
 Each is auto-discovered via `readDir`. Add a new file here only when the fix is consumed by ≥ 2 packages transitively (e.g. ffmpeg + a future consumer both wanting a static `dav1d`); a one-binary quirk belongs in that binary's flake.
 
+When an overlay fragment propagates a *modified* dep to a consumer, reference it as `self.X`, **not** `super.X` — `super.X` is the pre-overlay vanilla derivation, so using it spawns a second phantom copy of the lib alongside the fixed one and the consumer may link the wrong one (see [static-linking.md](static-linking.md#propagation--outputs)).
+
 `mingw-overlay` entries are stitched into `mingwStaticCross pkgs` as overlay fragments, so curl, ffmpeg, etc. transparently see the fixed `libidn2` / `libpsl` / `ncurses`. The `cosmo/` directory has the analogous role for `cosmoStaticCross`.
 
 ## `mingwStaticCross pkgs`

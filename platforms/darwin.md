@@ -93,6 +93,20 @@ darwinX86Unpin =
 
 **Previous failed approach** (don't revive): `install_name_tool -change` retargeting to `/usr/lib/libiconv.2.dylib`. The dylib is in the dyld shared cache on every macOS, but action-build rejects it — staticize instead.
 
+## C++ apps: static-link libc++
+
+The allow-list permits `libSystem` + Frameworks + `libobjc` — **not** `/usr/lib/libc++.1.dylib`. A C++ binary built with `clang++` links libc++ dynamically by default and gets rejected. Static-link the C++ runtime into the final link:
+
+```nix
+extraLinkFlags = "-nostdlib++ ${sp.libcxx}/lib/libc++.a ${sp.libcxx}/lib/libc++abi.a";
+```
+
+`-nostdlib++` suppresses the implicit `-lc++`, then the two `.a`s supply it statically. (Linux `pkgsStatic` already links the musl libc++/libstdc++ statically, so it needs no extra flags — this is darwin-only.) Cases: x265's CLI, srt's multicall, librist (via [../multicall.md](../multicall.md)'s `extraLinkFlags`). `otool -L` should then show only `libSystem.B.dylib`.
+
+## meson cross-file: `cpu_family` is `arm64`, not `aarch64`
+
+On `aarch64-darwin`, nixpkgs writes `cpu_family = 'arm64'` into the meson cross-file (matching `uname -m` — see below — not the Rust/Linux `aarch64`). A library whose `meson.build` gates asm on `host_machine.cpu_family() == 'aarch64'`, or excludes `arm64` from a `.startswith('arm')` check, silently builds the wrong (or no) asm path. One-line patches add `'arm64'` alongside `'aarch64'`. Cases: libopus, dav1d, rubberband — applied via single-line entries in the `nativeFixes` registry (`feedback_meson_cpu_family_darwin_arm64`).
+
 ## `uname -m` is `arm64`, not `aarch64`
 
 `uname -m` on Apple Silicon returns `arm64`. Linux ARM returns `aarch64`. Rust target triples and unpins' asset naming use `aarch64-apple-darwin`.

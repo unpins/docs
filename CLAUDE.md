@@ -36,8 +36,10 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [releasing.md](releasing.md) — release flow, tag format, common failure modes.
 - [architecture.md](architecture.md) — `mkStandaloneFlake`, where per-binary quirks live (inline) vs. transitive-lib overlay fragments (`nix-lib/{native,mingw}-overlay/`, `nix-lib/cosmo/`), `nix-lib` scope rule, refactor verification.
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
+- [static-linking.md](static-linking.md) — `pkgsStatic` gotchas independent of OS (propagation, `.pc`/`Requires.private`, aggressive DCE, eval blockers, musl probes).
 - [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
+- [multicall.md](multicall.md) — folding many upstream executables into one `argv[0]`-dispatching binary (`ld -r` and reuse-the-link-line recipes).
 - [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, blocked packages.
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + first-class `pkgs.pkgsCross.cosmo` (wired via `applyPatches` + `replaceCrossStdenv` in `windowsPkgs`).

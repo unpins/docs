@@ -71,6 +71,70 @@ Forcing `pkgsCross.mingwW64.<lib>` into static-only via `--disable-shared` chain
 
 Reference implementation: `curl/flake.nix`.
 
+## Static `.pc` link-resolution traps (provider side)
+
+The chain above is *consumer*-side (curl threading static idn/psl). The opposite class shows up when **you ship a static lib that another package consumes via `pkg-config --static`** (ffmpeg, srt, librist). The lib builds fine, but the consumer's link fails — or worse, silently re-imports a DLL. Three recurring shapes; diagnose with `objdump -p result/bin/<pkg>.exe | grep 'DLL Name'` (unexpected `lib*.dll`) and `nm -u <lib>.a | grep __imp_` (unresolved Win32/runtime imports).
+
+### (A) C++ lib leaks a *dynamic* `-lgcc_s` into `Libs.private`
+
+CMake C++ libraries (x265, srt's `haisrt`) run an exception-handling link probe **without** `-static-libgcc`, so CMake bakes the *dynamic* gcc-runtime sequence (`-lgcc_s …`) into the `.pc` `Libs.private`. A consumer doing `pkg-config --static` re-injects `-lgcc_s`; the `libgcc_s.dll.a` import lib then wins over `libgcc_eh.a`, and the final `.exe` imports `libgcc_s_seh-1.dll` — a forbidden companion DLL.
+
+Fix in the lib's `postFixup` (mingw branch): sed the `.pc` so `Libs.private` carries the **static** runtime sequence instead:
+
+```bash
+sed -i -e 's|^\(Libs.private:\).*|\1 -lstdc++ -lgcc -lgcc_eh -lmcfgthread -lntdll|' \
+  "$out/lib/pkgconfig/<lib>.pc" "$dev/lib/pkgconfig/<lib>.pc"
+```
+
+This was the keystone that unblocked **x265 / svt-av1** in ffmpeg-on-Windows (both listed as "dead ends" in older notes — they aren't). See `nix-lib/native-overlay/x265.nix`, auto-memory `feedback_mingw_pc_libgcc_s_probe_trap`.
+
+### (B) Static lib forgets its Win32 syscall deps in `Libs.private`
+
+A static `.a` that calls Winsock / IPHLPAPI / Bcrypt / winpthreads doesn't record the matching `-l<sysdll>` in its `.pc`, because the *shared* build resolved them implicitly. The consumer link then fails on `__imp_<API>` undefined. This also surfaces the first time anything links an **executable** against the lib — a lib-only consumer (ffmpeg wanting `librist.a`) never hits it, but the standalone tools do (this is exactly the `librist` tools needing `-lwinpthread -lbcrypt`).
+
+Diagnose: `nm -u <lib>.a | grep __imp_`, then map the symbol to its DLL:
+
+| Undefined `__imp_*` symbol | Append to the link |
+| -------------------------- | ------------------ |
+| `WSAStartup`, `socket`, `recv`, … | `-lws2_32` |
+| `if_nametoindex`, `GetAdaptersAddresses`, … | `-liphlpapi` |
+| `BCryptGenRandom`, `BCrypt*` | `-lbcrypt` |
+| `pthread_mutex_lock`, `pthread_create`, `clock_gettime` | `-lwinpthread` |
+| `CertOpenStore`, `CryptAcquireContext`, … | `-lcrypt32` |
+| `InitSecurityInterfaceA` (Schannel SSPI) | `-lsecur32` |
+| `CoCreateInstance`, COM | `-lole32` |
+
+Fix where it's cheapest: append to the lib's `.pc` `Libs.private` (so every consumer gets it), or — for a one-off standalone tool link — append to that link via `NIX_LDFLAGS` (lands after the archive group, so it resolves; see `librist/multicall.nix`). Cases: mbedtls (`-lbcrypt`, threading `-lwinpthread`), libssh (`-lws2_32 -liphlpapi`). See `feedback_mingw_libs_private_winapis`.
+
+### (C) `Requires.private` dropped → "lib >= X not found"
+
+Covered cross-platform in [../static-linking.md](../static-linking.md#pc-files-and-the-static-linker) — sed `Requires.private:` → `Requires:` plus propagate. Hits brotli / fontconfig / libtiff / libthai / glib transitively under mingw.
+
+### (D) Header defaults to `__declspec(dllimport)` with no static fallback
+
+A generalization of item 3 above. A library's public header decorates its API with `__declspec(dllimport)` under `_WIN32` and provides no `*_STATIC` escape; the consuming `.a` then references `__imp_<sym>` that the static archive doesn't define. Two variants:
+
+- **Lib ships a `.pc`** → inject `-D<NAME>_STATIC` into its `Cflags` (`postFixup` sed), so consumers compile against the static-decorated declarations. (curl's `-DNGHTTP2_STATICLIB -DCURL_STATICLIB -DPSL_STATIC` are this.)
+- **No `.pc`** → patch the header to default to static linkage under `_WIN32`.
+
+Confirmed: chromaprint, libssh, twolame; expected for gdbm, libgcrypt, sqlite, libuv, nghttp2. See `feedback_mingw_dllimport_static_pattern`.
+
+## Rust → mingw single binary
+
+A Rust CLI cross-compiled to `x86_64-pc-windows-gnu` ships, by default, alongside `libstdc++-6.dll` / `libgcc_s_seh-1.dll` / `libmcfgthread-2.dll`. Three fixes collapse it to one `.exe` (validated on `rsvg-convert`):
+
+1. **`+crt-static`** — sed it into `.cargo/config.toml`'s `rustflags` (the env-var form is dropped by some build scripts).
+2. **Static runtime on the search path** — copy the static `libstdc++.a` / `libmcfgthread.a` into a dir and pass `-L native=$TMPDIR/static-rt`; the GNU Rust target otherwise picks the `.dll.a` import libs.
+3. **`-lntdll -lkernel32` *after* `-lmcfgthread`** — mcfgthread's TLS uses Win32 APIs that must resolve after it on the single-pass link.
+
+Plus **`-Wl,--allow-multiple-definition`**: a Rust staticlib and libgcc both define `___chkstk_ms` / `__udivmodti4` / `__udivti3`, and the COMDAT/weak dedup doesn't survive two static archives — let the first definition win. (`feedback_mingw_rust_compiler_builtins_collision`, `feedback_unpins_rust_mingw_single_binary`)
+
+Dead ends: bare `-static` (over-links, breaks), `SYSTEM_DEPS_LINK=static` (no effect here).
+
+## readdir / directory enumeration: prefer cosmocc
+
+msvcrt's `readdir` returns filenames through `WideCharToMultiByte(CP_ACP, …)` — it **silently drops** CJK / emoji / often Latin-1 filenames (data loss, not a rendering issue). Any package that *enumerates* directories (`tree`, `findutils`, `coreutils`, `ls`) is wrong on Windows under mingw. Cosmopolitan keeps filenames UTF-8 internally and exposes them correctly, so for directory-walking tools the Windows target goes through [cosmocc.md](cosmocc.md) instead — the 350–440 KB size penalty is the cost of correctness, and it overrides the usual "cosmo only when no native option" preference. (`feedback_mingw_readdir_ansi_data_loss`)
+
 ## Fake-static libraries
 
 Some upstreams only build a shared library plus an import library, and ship a `libfoo.a` that is just a *symlink* to `libfoo.dll.a` (the import lib). Even with `LDFLAGS=-all-static` the resulting binary imports the DLL.
@@ -191,12 +255,15 @@ Shipped path: native uses `pkgs.pkgsStatic.coreutils` (multicall, symlinks dropp
 ### Other transitive dead ends in 25.11 cross-mingw
 
 - `libtheora` 1.1.1 (ld treats `.dll.def` as a linker script).
-- `x265` 3.5 (CMake error).
 - `fftw` (gfortran-cross-wrapper broken — pulled by `speex`).
 - `rav1e` (Rust toolchain too).
-- `svt-av1` (3.1.2 renamed `svt_av1_enc_init_handle`; ffmpeg 8.0 still uses old name).
 
-For ffmpeg, drop those codecs (see [../big-packages.md](../big-packages.md)).
+**No longer dead ends** (this list predates the provider-side `.pc` fixes above):
+
+- `x265` — what looked like a "CMake error" was trap (A)'s dynamic-`-lgcc_s` leak; ships standalone (`unpins/x265`) and links into ffmpeg-Windows after the `.pc` sed.
+- `svt-av1` — ships standalone (`unpins/svt-av1`) with LTO disabled (the [../static-linking.md](../static-linking.md) IR-archive trap). The `svt_av1_enc_init_handle` rename is an ffmpeg-version↔svt-version API mismatch, orthogonal to the cross build.
+
+For ffmpeg, drop the genuinely-blocked codecs (see [../big-packages.md](../big-packages.md)).
 
 ## Why not overlays for per-package fixes
 
