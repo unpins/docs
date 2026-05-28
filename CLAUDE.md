@@ -44,6 +44,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + first-class `pkgs.pkgsCross.cosmo` (wired via `applyPatches` + `replaceCrossStdenv` in `windowsPkgs`).
 - [big-packages.md](big-packages.md) — ffmpeg-class playbook; static GTK2 recipe.
+- [crypto-backend.md](crypto-backend.md) — prefer mbedtls over OpenSSL for static crypto: why, platform-conditional dep, per-consumer selectors, rtmpdump exception.
 - [templates/](templates/) — minimal `flake.nix`, build/release workflow files.
 
 ## Commits
