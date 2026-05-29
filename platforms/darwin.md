@@ -103,6 +103,31 @@ extraLinkFlags = "-nostdlib++ ${sp.libcxx}/lib/libc++.a ${sp.libcxx}/lib/libc++a
 
 `-nostdlib++` suppresses the implicit `-lc++`, then the two `.a`s supply it statically. (Linux `pkgsStatic` already links the musl libc++/libstdc++ statically, so it needs no extra flags — this is darwin-only.) Cases: x265's CLI, srt's multicall, librist (via [../multicall.md](../multicall.md)'s `extraLinkFlags`). `otool -L` should then show only `libSystem.B.dylib`.
 
+### Heavy-C++ apps: unexport the libc++ symbols (TMO weak-coalescing trap)
+
+`otool -L` showing only `libSystem.B.dylib` is **necessary but not sufficient** for a heavy-C++ app (iostream, exceptions, `shared_ptr`). The static libc++ emits its symbols — operator new/delete (`__TEXT,__lcxx_override`), every explicitly-instantiated iostream/locale/string method, type_info, vtables — as **weak external**. At load time dyld coalesces those weak defs with the **strong** copies the system `libc++.1.dylib` / `libc++abi.dylib` re-export via libSystem, so the **system** runtime executes instead of the statically-linked one. On macOS 15 (whose libc++ is built with "typed memory operations") the app then aborts on its first real op:
+
+```
+libc++abi: Terminating due to typed operator new being invoked before its
+static initializer in libcxx has been executed.
+```
+
+e.g. `std::ifstream` → (coalesced) system `basic_filebuf::setbuf` → system *typed* `operator new`, whose TMO init (in the system `libc++.dylib` we don't link) never ran. A C-codec app (avif/aom — `FILE*`, no iostream) never instantiates these, so it never trips it. **A macOS 14 builder/CI would silently PASS** (no TMO in its system libc++) while shipping a binary that crashes for macOS 15 users — so the fix must hold cross-version, not depend on the build host.
+
+**Fix: make the whole libc++/libc++abi symbol surface non-exported**, so dyld can't coalesce it and our static copies are kept. Pass an unexported-symbols list (wildcards) to the final link:
+
+```nix
+# multicall.nix, isDarwin branch: write the list, then append to extraLinkFlags
+#   -Wl,-unexported_symbols_list,$PWD/unexport.syms
+# Patterns (Itanium mangling, Mach-O leading _):
+#   __Znw* __Zna* __Zdl* __Zda*                operator new / new[] / delete / delete[]
+#   __ZNSt* __ZNKSt* __ZNVSt* __ZSt*           std:: members + free functions
+#   __ZTVSt* __ZTVNSt* __ZTISt* __ZTINSt* __ZTSSt* __ZTSNSt*   std:: vtables / type_info
+#   __ZN10__cxxabiv1* __ZNK10__cxxabiv1* __ZTVN10__cxxabiv1* __ZTIN10__cxxabiv1* __ZTSN10__cxxabiv1*
+```
+
+An executable exports nothing anyone links against, so hiding these is safe. Verify with `nm -m <bin> | grep ZNSt3__1 | grep -c 'weak external'` → must be `0` (the std:: symbols should read `non-external`). Unexporting **operator new alone is not enough** — the abort path is iostream, reached through the 400+ other weak std:: symbols (confirmed via crash backtrace: the live `setbuf` frame was in the system `libc++.1.dylib`, not the binary). Validated on `heif`. Gotcha: a literal `''` inside a Nix `''…''` string (e.g. in a comment) terminates the string — phrase around it. (`project_unpins_heif_wip`)
+
 ### When `-nostdlib++` can't work: the search-path shim
 
 `-nostdlib++` only suppresses the **implicit** `-lc++` the compiler driver adds. It does nothing about **explicit** `-lc++`/`-lstdc++` tokens that the build itself emits, and it strips the cc-wrapper's libcxx `-L` — so any such token then fails outright with `ld: library not found for -lstdc++`. ffmpeg hits exactly this: the C++ codec deps drag libc++ in two ways at once, both defaulting to the dynamic `/usr/lib/libc++.1.dylib`:

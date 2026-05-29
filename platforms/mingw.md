@@ -144,6 +144,30 @@ buildInputs = [ scope.windows.mcfgthreads ];   # provides lib/libmcfgthread.a on
 
 `-Wl,-Bstatic -lmcfgthread` forces the `.a` over the `.dll.a`; symbols are then defined, so the driver's later implicit dynamic `-lmcfgthread` imports nothing. Verify: `objdump -p <bin>.exe | awk '/DLL Name:/{print $NF}'` must list only uppercase system DLLs (`KERNEL32`/`msvcrt`/`ntdll`). Only surfaces for tools that actually use `std::thread` (`jxl`'s cjxl/djxl hit it; `avif`/`aom` don't). Same root cause as the Rust mcfgthread fix above. (`feedback_mingw_mcfgthread_stdthread_static_fold`)
 
+## Combined C++ multicall link: binutils PE-COMDAT bug → use lld
+
+A C++ multicall whose folded archives carry heavy C++ (`heif`: libde265 + x265 + libheif, all C++) can fail the **combined** link under binutils `ld` with a wall of:
+
+```
+undefined reference to `std::__cxx11::basic_string<…>::_M_dispose()'
+undefined reference to `std::_Sp_counted_base<…>::_M_release_last_use_cold()'
+```
+
+— though those symbols **are present** in `libstdc++.a` (`nm` confirms). CMake's per-tool `.exe` links resolve them fine; only the larger combined link (the template app's objects + the sibling mains) trips it. It's a binutils 2.44 PE/COFF bug: in a large link its COMDAT-group selection discards the archive member that *defines* the symbol, leaving the reference dangling. An `ld -r --whole-archive` pre-merge does **not** help — `ld -r` preserves COMDAT groups rather than collapsing them to plain defs, so the merged object re-exposes the same undefined COMDAT (and it cascades: each C++ archive re-introduces it).
+
+**Fix: drive the combined link with lld instead of binutils ld** — lld's PE/COFF COMDAT selection doesn't have the bug, so a plain static C++ link just works, with none of the GNU-ld workarounds (no `--start-group`, no archive pre-merge, no `--allow-multiple-definition`, no `-nostdlib++`):
+
+```nix
+windowsBuild = pkgs:
+  mk pkgs (ulib.mingwStaticCross pkgs) {
+    extraLinkFlags = "-static -static-libgcc -static-libstdc++ -fuse-ld=lld";
+  };
+# + pkgs.buildPackages.lld in the multicall derivation's nativeBuildInputs
+#   (the cross gcc driver invokes `ld.lld` from PATH)
+```
+
+Scope it to the **combined** link only — CMake's per-tool links are fine under binutils ld, so no toolchain change is needed, just the one linker flag + lld on the build path. Validated on `heif` (libde265+x265+libheif+aom+dav1d → 35 MB PE32+ importing only KERNEL32/msvcrt/ntdll, full encode/decode roundtrip on the smoke VM). avif/aom don't hit it (apps mostly C) and jxl links OK under GNU ld too — reach for lld only when the combined C++ link shows the COMDAT-discard `undefined reference`s above. (`project_unpins_heif_wip`)
+
 ## readdir / directory enumeration: prefer cosmocc
 
 msvcrt's `readdir` returns filenames through `WideCharToMultiByte(CP_ACP, …)` — it **silently drops** CJK / emoji / often Latin-1 filenames (data loss, not a rendering issue). Any package that *enumerates* directories (`tree`, `findutils`, `coreutils`, `ls`) is wrong on Windows under mingw. Cosmopolitan keeps filenames UTF-8 internally and exposes them correctly, so for directory-walking tools the Windows target goes through [cosmocc.md](cosmocc.md) instead — the 350–440 KB size penalty is the cost of correctness, and it overrides the usual "cosmo only when no native option" preference. (`feedback_mingw_readdir_ansi_data_loss`)
