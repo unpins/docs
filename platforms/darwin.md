@@ -103,6 +103,37 @@ extraLinkFlags = "-nostdlib++ ${sp.libcxx}/lib/libc++.a ${sp.libcxx}/lib/libc++a
 
 `-nostdlib++` suppresses the implicit `-lc++`, then the two `.a`s supply it statically. (Linux `pkgsStatic` already links the musl libc++/libstdc++ statically, so it needs no extra flags — this is darwin-only.) Cases: x265's CLI, srt's multicall, librist (via [../multicall.md](../multicall.md)'s `extraLinkFlags`). `otool -L` should then show only `libSystem.B.dylib`.
 
+### When `-nostdlib++` can't work: the search-path shim
+
+`-nostdlib++` only suppresses the **implicit** `-lc++` the compiler driver adds. It does nothing about **explicit** `-lc++`/`-lstdc++` tokens that the build itself emits, and it strips the cc-wrapper's libcxx `-L` — so any such token then fails outright with `ld: library not found for -lstdc++`. ffmpeg hits exactly this: the C++ codec deps drag libc++ in two ways at once, both defaulting to the dynamic `/usr/lib/libc++.1.dylib`:
+
+- dep `.pc` `Libs.private` under `--pkg-config-flags=--static` — libgme emits `-lstdc++`, chromaprint `-lc++`, etc.;
+- ffmpeg's own hardcoded `-lstdc++` in the `libgme`/`libopenmpt`/`librubberband`/`libsnappy` `require` probes.
+
+These come from too many sources to suppress, and they also gate configure's lib-detection link tests, so you can't drop them. Instead make them **resolve static**: drop a `-L` shim that exposes `libc++.a` under every name those tokens ask for, ahead of the dylib dirs, and force ld64 to prefer the `.a`.
+
+```nix
+configurePhase = ''
+  runHook preConfigure
+  ${pkgs.lib.optionalString isDarwin ''
+    mkdir -p "$TMPDIR/cxx-static"
+    ln -sf ${pkgs.libcxx}/lib/libc++.a    "$TMPDIR/cxx-static/libc++.a"
+    ln -sf ${pkgs.libcxx}/lib/libc++.a    "$TMPDIR/cxx-static/libstdc++.a"
+    ln -sf ${pkgs.libcxx}/lib/libc++abi.a "$TMPDIR/cxx-static/libc++abi.a"
+    export NIX_LDFLAGS="-L$TMPDIR/cxx-static $NIX_LDFLAGS"
+  ''}
+  ./configure … --extra-ldflags=-Wl,-search_paths_first --extra-libs=-lc++abi
+'';
+```
+
+Three load-bearing pieces:
+
+- **`-Wl,-search_paths_first`.** ld64 defaults to `-search_dylibs_first`: even with the shim's `-L` first, a plain `-lc++` would still find `libc++.1.dylib` in a later dir before the `.a` in the shim dir. `-search_paths_first` makes it take the first matching file in `-L` order (the shim `.a`) instead. This is the linchpin — without it the shim is silently ignored.
+- **`NIX_LDFLAGS`, not `NIX_LDFLAGS_BEFORE`.** This darwin cc-wrapper does **not** honor `NIX_LDFLAGS_BEFORE` (the `-L` never reaches the link line — confirm with `make V=1`). `NIX_LDFLAGS` is prepended and lands before the sysroot dirs. Same gotcha bit the librsvg darwin fix.
+- **Alias `libc++.a` as `libstdc++.a` too.** On darwin libstdc++ *is* libc++; the hardcoded `-lstdc++` tokens need a file by that name on the path.
+
+`--extra-ldflags` lands early in ffmpeg's link line (`$LDFLAGS`), `--extra-libs` at the end (`$extralibs`). Verify with `otool -L` (only `libSystem` / Frameworks / `libobjc`). Case: ffmpeg (`ffmpeg/flake.nix`). The plain `-nostdlib++` recipe above is still correct for C++ apps that emit only the implicit `-lc++` (x265, srt, librist) — reach for the shim only when the build hardcodes explicit C++-runtime `-l` tokens.
+
 ## meson cross-file: `cpu_family` is `arm64`, not `aarch64`
 
 On `aarch64-darwin`, nixpkgs writes `cpu_family = 'arm64'` into the meson cross-file (matching `uname -m` — see below — not the Rust/Linux `aarch64`). A library whose `meson.build` gates asm on `host_machine.cpu_family() == 'aarch64'`, or excludes `arm64` from a `.startswith('arm')` check, silently builds the wrong (or no) asm path. One-line patches add `'arm64'` alongside `'aarch64'`. Cases: libopus, dav1d, rubberband — applied via single-line entries in the `nativeFixes` registry (`feedback_meson_cpu_family_darwin_arm64`).
