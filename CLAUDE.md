@@ -38,6 +38,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
 - [static-linking.md](static-linking.md) — `pkgsStatic` gotchas independent of OS (propagation, `.pc`/`Requires.private`, aggressive DCE, eval blockers, musl probes).
 - [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
+- [embedded-man.md](embedded-man.md) — `.unpin_man` section format + `withMan`/`embedMan` glue that embed each package's man pages in its binary; deferred `unpin man` renderer design.
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
 - [multicall.md](multicall.md) — folding many upstream executables into one `argv[0]`-dispatching binary (`ld -r` and reuse-the-link-line recipes).
 - [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, blocked packages.
