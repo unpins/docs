@@ -48,12 +48,29 @@ Then:
 4. **Map the reported name back to the raw `nm` symbol before `objcopy`.** GNU `ld` prints mangled names with `-Wl,--no-demangle` (objcopy-ready); `ld64` *always* demangles and has no flag to stop it, so match the reported name against both the raw `nm` symbol and its `c++filt` form (strip the Mach-O leading `_` first).
 5. **meson object layout differs on mingw:** `tools/<app>.exe.p/<app>.c.obj` (the `.exe` rides in the dir name, `.obj` not `.o`). Probe for it rather than assuming the unix `tools/<app>.p/<app>.c.o`.
 6. **mingw `gcc` auto-appends `.exe`** to the link output; normalize to the suffixless name `installPhase`/`withAliases` expect, then let the Windows `postFixup` re-add `.exe` *after* the UNPIN_META embed (symlinks are gone by then, nothing dangles).
-7. **Force the C++ runtime static on mingw** (`-static -static-libgcc -static-libstdc++`) and on darwin (`-nostdlib++ libc++.a libc++abi.a`, see [platforms/darwin.md](platforms/darwin.md)) so the multicall `.exe`/binary carries no `libstdc++-6`/`libgcc_s`/`libc++.1` dependency — same single-binary policy as a normal package.
+7. **Force the C++ runtime static on mingw** (`-static -static-libgcc -static-libstdc++`) and on darwin (`-nostdlib++ libc++.a libc++abi.a`, see [platforms/darwin.md](platforms/darwin.md)) so the multicall `.exe`/binary carries no `libstdc++-6`/`libgcc_s`/`libc++.1` dependency — same single-binary policy as a normal package. This holds even when the *apps* are C (`aom`): if the linked `.a` carries C++ objects, the link still pulls the C++ runtime.
+   - **mingw `std::thread` caveat (`jxl`):** with the `mcf` GCC thread model, `std::thread`/`std::mutex` resolve through **libmcfgthread**, which `-static-libstdc++` does *not* cover (it's a separate lib, and the driver appends an implicit dynamic `-lmcfgthread` last). The `.exe` then imports `libmcfgthread-2.dll`. Fold it explicitly: `-Wl,-Bstatic -lmcfgthread -Wl,-Bdynamic`, with `windows.mcfgthreads` on the link path. See [platforms/mingw.md](platforms/mingw.md), auto-memory `feedback_mingw_mcfgthread_stdthread_static_fold`.
+8. **Splice the sibling apps' role-specific OBJECT-lib members the template's link line omits.** When the template app's link doesn't pull an OBJECT lib another app needs (`aomenc`'s link lacks the `aom_decoder_app_util` objects `aomdec` needs), find and splice them: `find . -path "*<objlib>.dir/*.$oext"`. Make spliced objects absolute if the link runs from a build subdir (the `link.txt` paths are relative to it — e.g. libjxl builds tools under `tools/`).
 
 The dispatcher is a tiny C file: `basename(argv[0])` (with `.exe` stripped and `\\` handled on Windows) → the matching `<app>_main`, plus a `<pkg> <applet> [args]` form so the bare binary stays callable.
 
-Reference: `unpins/srt/multicall.nix` (CMake/C++), `unpins/librist/multicall.nix` (meson/C). Both are invoked as `import ./multicall.nix { lib = pkgs.lib // unpins-lib.lib; } { ... }` from the consumer flake.
+Reference: `unpins/srt/multicall.nix` (CMake/C++), `unpins/librist/multicall.nix` (meson/C), `unpins/avif` + `unpins/jxl` + `unpins/aom` (CMake image/video codec CLIs — `aom` adds the app-provided-hook localize and OBJECT-lib splice; `jxl` the subdir-build link.txt and mingw `std::thread` fold). All invoked as `import ./multicall.nix { lib = pkgs.lib // unpins-lib.lib; } { ... }` from the consumer flake.
 
 ## Symbol-collision tool choice
 
-`objcopy --redefine-sym OLD=NEW` rewrites both the definition **and** every reference within an archive, keeping it self-consistent — this is the correct tool for both recipes. Do **not** reach for `--localize-symbol` to dissolve a clash: it hides the definition but leaves siblings that legitimately call the symbol with an undefined reference. See [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library) for the one case where localize *is* right (embedding a whole program where nothing outside should see its symbols).
+`objcopy --redefine-sym OLD=NEW` rewrites the definition **and** every reference *within the object(s) you run it on*, keeping them self-consistent — this is the correct tool for the common case. It is the **wrong** tool when the reference lives in a **third object you must not rename**; reach for `--localize-symbol` there instead. Two such cases:
+
+- **Embedding a whole program as a library** (dash inside git): localize *every* symbol but one, so nothing outside sees the embedded program's symbols. See [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library).
+- **App-provided hooks in a multicall** (`aom`'s `aomenc`/`aomdec`): each app *defines* a hook (`usage_exit`, `exec_name`) that the **shared** helper TU (`tools_common.c`, compiled once into a common OBJECT lib) *calls by name*. Renaming the hook in *both* app objects leaves that shared reference undefined; renaming in neither gives `multiple definition`. Fix = **one global + the rest local**: keep the definition in exactly one app (the template whose link line you reuse) and `--localize-symbol=<sym>` it in every other app object. The shared TU binds to the surviving global; each other app's own calls bind to its now-local copy — one global + N locals never clashes. Tradeoff: a non-template app's hook-mediated output (e.g. a usage banner printed via the shared `die()`) shows the template's text — cosmetic; dispatch and exit codes are correct. (`main` is still renamed-in-all *before* this pass — the dispatcher needs distinct `<app>_main`.)
+
+  ```bash
+  kept=0                                    # detect clashes from the linker, then:
+  while read app; do
+    raw=$($NM --defined-only "${OBJ[$app]}" | awk -v s="$sym" '$3==s{print $3;exit}')
+    [ -n "$raw" ] || continue
+    if [ "$kept" = 0 ]; then kept=1; continue; fi   # first definer stays global
+    $OBJCOPY --localize-symbol="$raw" "${OBJ[$app]}"
+  done
+  ```
+
+  Reference: `unpins/aom/multicall.nix`. See auto-memory `feedback_multicall_localize_app_provided_hooks`.

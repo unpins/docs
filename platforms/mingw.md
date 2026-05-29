@@ -131,6 +131,19 @@ Plus **`-Wl,--allow-multiple-definition`**: a Rust staticlib and libgcc both def
 
 Dead ends: bare `-static` (over-links, breaks), `SYSTEM_DEPS_LINK=static` (no effect here).
 
+## C++ `std::thread` → mingw `libmcfgthread-2.dll`
+
+The mingw GCC here uses the **`mcf` thread model** (`x86_64-w64-mingw32-gcc -v` → `Thread model: mcf`), so libstdc++'s `std::thread` / `std::mutex` resolve through **libmcfgthread**. A C++ program (or C apps linking a C++ `.a`) that touches `std::thread` then imports `libmcfgthread-2.dll` — rejected by the portability gate — **even with `-static -static-libgcc -static-libstdc++`**, because mcfgthread is a separate library and the compiler driver appends an implicit *dynamic* `-lmcfgthread` after the command-line libs (anything that resets the linker to `-Bdynamic` first — e.g. libjxl's `JPEGXL_STATIC` `link_libraries(… -Wl,-Bdynamic)` — guarantees it).
+
+Fold the static archive in explicitly:
+
+```nix
+extraLinkFlags = "-static -static-libgcc -static-libstdc++ -Wl,-Bstatic -lmcfgthread -Wl,-Bdynamic";
+buildInputs = [ scope.windows.mcfgthreads ];   # provides lib/libmcfgthread.a on the link path
+```
+
+`-Wl,-Bstatic -lmcfgthread` forces the `.a` over the `.dll.a`; symbols are then defined, so the driver's later implicit dynamic `-lmcfgthread` imports nothing. Verify: `objdump -p <bin>.exe | awk '/DLL Name:/{print $NF}'` must list only uppercase system DLLs (`KERNEL32`/`msvcrt`/`ntdll`). Only surfaces for tools that actually use `std::thread` (`jxl`'s cjxl/djxl hit it; `avif`/`aom` don't). Same root cause as the Rust mcfgthread fix above. (`feedback_mingw_mcfgthread_stdthread_static_fold`)
+
 ## readdir / directory enumeration: prefer cosmocc
 
 msvcrt's `readdir` returns filenames through `WideCharToMultiByte(CP_ACP, …)` — it **silently drops** CJK / emoji / often Latin-1 filenames (data loss, not a rendering issue). Any package that *enumerates* directories (`tree`, `findutils`, `coreutils`, `ls`) is wrong on Windows under mingw. Cosmopolitan keeps filenames UTF-8 internally and exposes them correctly, so for directory-walking tools the Windows target goes through [cosmocc.md](cosmocc.md) instead — the 350–440 KB size penalty is the cost of correctness, and it overrides the usual "cosmo only when no native option" preference. (`feedback_mingw_readdir_ansi_data_loss`)
