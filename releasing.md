@@ -42,9 +42,26 @@ nix build .#packages.x86_64-darwin.default --no-link --print-out-paths
 ### README must declare
 
 - **Windows variant**: `mingw` or `cosmo`, with a one-sentence reason if `cosmo` (e.g. `tree`: `msvcrt readdir` drops CJK filenames silently — see [platforms/cosmocc.md](platforms/cosmocc.md)).
-- **Embedded resources**: list anything that's baked into the binary instead of shipped as a sibling data file (terminfo, magic database, zoneinfo, syntax files). If a resource could not be embedded, state which one and why (size, runtime constraint, no upstream support).
+- **Embedded resources**: list anything that's baked into the binary instead of shipped as a sibling data file (terminfo, magic database, zoneinfo, syntax files). If a resource could not be embedded, state which one and why (size, runtime constraint, no upstream support). Man pages are embedded by default (`embedMan`) for every package, so they don't need a per-package mention — verify presence in the "Embedded man present" step below instead.
 - **Disabled features / `--disable-*` flags**: each one with a one-sentence reason (missing on musl, breaks static link, drags in a dynamic dep, etc.).
 - **Platforms excluded** from the matrix (`linuxOnly`, Windows-only, no aarch64-darwin, etc.) with the reason (kernel-only API, infeasible static toolchain, …).
+
+### Embedded man present
+
+`embedMan` is default-on, but `withMan` **warns and skips** rather than failing the build (a missing-binary / `binName` mismatch must never break an unrelated package). So a release can silently ship with **no** embedded man. Confirm the `.unpin_man` block is actually there for every package that has upstream man pages:
+
+```bash
+grep -qa 'UNPIN_MAN_v1_b2c9d1' result/bin/<pkg> \
+  && echo "man embedded" || echo "NO embedded man"
+```
+
+Check **per platform** — the section is added independently on each (native objcopy, Mach-O tail-append, Windows/cosmo objcopy/ZIP), and each is sourced differently. Common silent-skip causes to rule out:
+
+- **Manual native wiring.** A package that sets `nativeBuild = false` and assembles `packages.<sys>.default` itself (e.g. `gvim`) bypasses `mkStandaloneFlake`'s automatic `withMan` — it must call `lib.withMan` on its own derivation, or it ships man-less.
+- **Cross has no man to harvest.** Windows/cosmo cross builds produce no `share/man`, so `mkStandaloneFlake` sources it from `x86_64-linux.<pkgsAttr>`. If the nixpkgs attr name differs from the package name (no `<pkgsAttr>` attr → `null`), supply the man explicitly via `manRoot` (see `gvim.exe` sourcing from `vim-full`).
+- **`binName` mismatch.** If the shipped binary isn't `<name>`, pass `binName` so `withMan` can find it.
+
+Packages that legitimately have no man (codec libs, `coreutils`/`busybox` without help2man) are expected to skip — note them in the README's embedded-resources list rather than chasing the warning. See [embedded-man.md](embedded-man.md).
 
 ### CI green
 
