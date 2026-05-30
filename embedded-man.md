@@ -1,4 +1,4 @@
-# Embedded man pages (`.unpin_man` + `unpin man`)
+# Embedded man pages (`unpin man`)
 
 Every unpins executable carries its own man pages *inside the binary*, so
 `unpin man <pkg> [page]` renders documentation with no companion asset and no
@@ -6,16 +6,23 @@ network. This kills the per-package data tarball for the man-only cases (jq,
 tmux, curl) and folds the man portion of the rest into the binary. It also gives
 Windows — which has no `man` — offline docs.
 
+> **On-disk format superseded.** Man pages no longer live in the bespoke
+> `.unpin_man` `UPMAN` container described in §1–§5 below. They are now entries
+> (`unpin/man/<name>.<section>`) in the unified **embedded-metadata ZIP** — see
+> [embedded-metadata.md](embedded-metadata.md), which is the authoritative spec
+> for the container, locating, `.so` redirects, and the build side. §1–§5 here
+> are kept only for historical context; **§6 (the renderer) is still the live
+> plan** and is unaffected by the container change (pages are still stored as
+> roff source).
+
 **Status:**
 
-- **On-disk format** (§1–§3) — final, frozen. roff-only, two entry kinds.
-- **Build side** (`withMan` / `embedMan`, §4) — implemented in `nix-lib` and
-  **default-on** across the catalog. Man-bearing packages embed automatically;
-  man-less ones skip gracefully.
-- **Reader** (container + inner archive, §1–§3) — **implemented** in
-  `unpin/src/man.rs` (`build.rs` self-embeds unpin's own `unpin.1`). `unpin man`
-  locates the blob, decodes the container, parses the `UPMAN` index, resolves
-  `.so`, and extracts a page's roff (`--raw` dumps it, `--list` lists pages).
+- **Container + locating + build side** — see
+  [embedded-metadata.md](embedded-metadata.md). roff-only, `.so` as a ZIP
+  symlink entry.
+- **Reader** — **implemented** in `unpin/src/meta.rs` (locator) +
+  `unpin/src/man.rs` (page index + `.so` resolution + `unpin man`). `build.rs`
+  self-embeds unpin's own `unpin.1`. `--raw` dumps roff, `--list` lists pages.
 - **Renderer** (roff → terminal, §6) — designed, **not yet implemented**. Until
   it ships, `unpin man` reports the page it read but cannot format it; this is
   acceptable while there are no users, and binaries embedded now stay forward-
