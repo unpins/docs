@@ -2,7 +2,7 @@
 
 Each unpins package repo ships two workflow files from [`templates/`](templates/):
 
-- `.github/workflows/<pkg>.yml` — **Build**. Fires on every `push` to `main` (and on `workflow_dispatch`). Cross-builds every platform the flake supports, runs the dynamic-link verifier (see [dynamic-link-policy.md](dynamic-link-policy.md)), and uploads artifacts as workflow-run artifacts. No tag, no GitHub release. Use to validate a change before cutting a release.
+- `.github/workflows/<pkg>.yml` — **Build**. Fires on every `push` to `main` (and on `workflow_dispatch`). Cross-builds every platform the flake supports, runs the package's `checkPhase` on the native jobs where the flake enables `doCheck` (see [Native test suite](#native-test-suite) below), runs the dynamic-link verifier (see [dynamic-link-policy.md](dynamic-link-policy.md)), and uploads artifacts as workflow-run artifacts. No tag, no GitHub release. Use to validate a change before cutting a release.
 
 - `.github/workflows/release.yml` — **Release**. `workflow_dispatch`-only. Computes the next tag, pushes it, then delegates to `action-build`'s `release.yml` reusable workflow, which builds again on the tag and creates the GitHub release with the binaries attached.
 
@@ -38,6 +38,27 @@ nix build .#packages.x86_64-darwin.default --no-link --print-out-paths
 ```
 
 `aarch64-darwin` native still needs Apple Silicon (CI `macos-14`). Local cross-from-Intel is good enough for compile-sanity.
+
+### Native test suite
+
+The functional smoke test (`smoke`/`smokePattern`) only proves the binary launches and prints its version. The upstream **test suite** is a much stronger check — and it *can* run, but only on a host that can execute what it built. Cross targets (Windows, i686, ppc64le, riscv64, and any cross-from-x86_64 darwin/arm) build test binaries for a foreign machine, so their `checkPhase` is skipped no matter what. The **native** jobs are different: x86_64-linux, aarch64-linux (`ubuntu-24.04-arm`), x86_64-darwin and aarch64-darwin (`macos-14`) each run on their own arch, so `make check` runs there for real.
+
+Wire it into the flake's build derivation gated on "not cross", so it runs on every native runner and auto-skips the rest:
+
+```nix
+# in the build = pkgs: closure, on the overrideAttrs of the static package
+doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
+```
+
+`pkgsStatic` is still `build == host` for the native arch, so this is `true` on all four native jobs and `false` for every cross. **Enable it wherever the suite passes** under `pkgsStatic`-musl (and, separately, under darwin-static — the two can diverge, so gate further with `lib.optionalAttrs` / `stdenv.hostPlatform.isLinux` if only one side cooperates).
+
+Where it does **not** pass, or isn't worth it, leave `doCheck = false` with a one-line reason — same policy as a disabled feature. The recurring causes:
+
+- **Impractical / runaway cost** — the suite downloads large fixtures or runs for hours (`aom` pulls ~GB of AV1 test vectors; `coreutils`/`bash` suites fork hundreds of helper processes).
+- **Breaks under static-musl** — tests that need `/proc`, locale data, DNS, a writable FHS, or a dynamic loader (`dlopen` plugins) that musl-static stubs out.
+- **No suite** — codec/data libs with nothing meaningful to run.
+
+The smoke test is the floor and runs unconditionally; `doCheck` is the stronger gate layered on top wherever the suite cooperates. Note any package left at `doCheck = false` in the README's build-notes the same way a disabled feature is noted.
 
 ### README must declare
 
