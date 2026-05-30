@@ -12,9 +12,15 @@ Windows — which has no `man` — offline docs.
 - **Build side** (`withMan` / `embedMan`, §4) — implemented in `nix-lib` and
   **default-on** across the catalog. Man-bearing packages embed automatically;
   man-less ones skip gracefully.
-- **Renderer** (`unpin man`, §6) — designed, **not yet implemented**. Until it
-  ships the embedded blob is unreadable; this is acceptable while there are no
-  users, and binaries embedded now stay forward-compatible as the renderer grows.
+- **Reader** (container + inner archive, §1–§3) — **implemented** in
+  `unpin/src/man.rs` (`build.rs` self-embeds unpin's own `unpin.1`). `unpin man`
+  locates the blob, decodes the container, parses the `UPMAN` index, resolves
+  `.so`, and extracts a page's roff (`--raw` dumps it, `--list` lists pages).
+- **Renderer** (roff → terminal, §6) — designed, **not yet implemented**. Until
+  it ships, `unpin man` reports the page it read but cannot format it; this is
+  acceptable while there are no users, and binaries embedded now stay forward-
+  compatible as the renderer grows. The plan is the pandoc port (`rustports`
+  Readers::Man → Writers::ANSI), not the from-scratch roff engine of §6.
 
 Pages are stored as **roff source only**. A complete pure-Rust renderer
 (man(7) + mdoc + tbl, §6) formats them at display time and reflows to the
@@ -75,16 +81,38 @@ S+6+L   4               payload_crc32       u32  CRC-32 (IEEE) of payload bytes
 S+10+L  S (=23)         END_SENTINEL    (see 1.3, fixed bytes) — validation only
 ```
 
-`L = payload_len`. Reader algorithm:
+`L = payload_len`, `S` = sentinel length (23). Reader algorithm:
 
-1. byte-scan the whole file for `BEGIN_SENTINEL` (reuse `find_in_chunks`).
-2. read fixed header (`container_version`, `compression`, `payload_len`).
+1. byte-scan the file for the next `BEGIN_SENTINEL` (reuse `find_in_chunks`).
+2. read the fixed header (`container_version`, `compression`, `payload_len`).
+   If `container_version != 1` (or the header is truncated), this sentinel is
+   not a v1 container — **skip it and resume at step 1** (see below).
 3. read exactly `payload_len` payload bytes, then `payload_crc32`, then assert
-   the next 24 bytes equal `END_SENTINEL` (corruption / wrong-offset guard).
+   the next `S` bytes equal `END_SENTINEL` (corruption / wrong-offset guard).
 4. verify CRC; decompress per `compression` → inner archive (§2).
 
-`container_version` unknown → refuse with "upgrade unpin". `compression`
-unknown → same. Finding two BEGIN sentinels → refuse (as aliases.rs does).
+**Skip, don't refuse, on a non-matching sentinel.** A byte-scan can match bytes
+that aren't a real container — most importantly the reader's *own*
+`BEGIN_SENTINEL` constant, which lives in `.rodata` of any binary that links the
+reader. When `unpin man` scans the `unpin` binary itself it meets that constant
+*before* the embedded blob, so a "two BEGIN sentinels → refuse" rule (as
+`aliases.rs` uses for the alias block) is unworkable here. The reader instead
+tries each sentinel in turn and **takes the first that yields a parseable v1
+container**, skipping the rest. This is safe because a man page is informational
+(unlike the alias block, a *security* boundary that creates PATH links): the
+worst case of guessing wrong is wrong documentation, not a hijacked link.
+
+Once a header commits (`container_version == 1`), any further defect — absurd
+`payload_len`, `END_SENTINEL` mismatch, or CRC failure — is a **corrupt
+container** and is reported, not skipped. `compression` unknown on a committed
+container → refuse with "upgrade unpin".
+
+Forward-compat caveat: a *future* `container_version` (≠ 1) read by an older
+unpin is currently skipped like a false positive (reported as "no embedded
+manual") rather than "upgrade unpin", since it is indistinguishable from a
+chance sentinel without committing to v1's framing. Revisit if
+`container_version` is ever bumped — e.g. validate `END_SENTINEL` at the
+computed offset before choosing skip-vs-upgrade.
 
 ### 1.3 Sentinels (exact bytes)
 
