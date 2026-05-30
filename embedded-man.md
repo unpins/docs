@@ -287,9 +287,14 @@ that used to ship companion files now embed everything.
 
 - Two independent version bytes: `container_version` (§1.2) and archive `magic`
   trailing byte (§2). Bump independently.
-- Unknown `kind` → reader skips the entry for listing but errors clearly if it
-  is the requested page ("page stored in a format this unpin can't render;
-  upgrade").
+- Unknown `kind` → **the reader errors** (cannot skip): index records are
+  variable-length with no per-record length prefix, so an unrecognized kind
+  makes the rest of the index unparseable. The original "skip for listing, error
+  only if requested" goal needs a per-record length prefix — deferred, and
+  folded into the planned unified embedded-metadata container (which adds a
+  top-level section TLV; the per-record length prefix is the same idea one level
+  down). Until then, a new kind only appears in a future format an old reader
+  should refuse anyway.
 - Limits: `entry_count` ≤ 65535 (u16); per-body ≤ 4 GiB (u32, never
   approached). util-linux (the worst case, 149 pages) compresses to tens of KB.
 - CRC-32 is integrity-only (detect truncation/corruption), not security; the
