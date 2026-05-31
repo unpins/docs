@@ -25,7 +25,8 @@ Cumulative logs of gotchas, dead ends, and known fixes — so the next person do
 
 - [patches.md](patches.md) — patch-writing gotchas: regenerate via `diff -u` (and why hand-edited hunks fail silently), nixpkgs path-style headers, where to apply the patch (consumer flake vs. `fixes` registry vs. `mingwOverlay`), fake-static library construction, symbol-collision recipe for whole-program embedding.
 - [runtime-data.md](runtime-data.md) — packages that need data files at runtime (`vim`, `gvim`, `file`). Locate-the-executable recipe per OS and how `unpin` lays the files out.
-- [embedded-man.md](embedded-man.md) — the `.unpin_man` section format and `withMan`/`embedMan` build glue that fold each package's man pages into its binary (killing the man-only data tarballs), plus the deferred design for the pure-Rust `unpin man` renderer.
+- [embedded-metadata.md](embedded-metadata.md) — the unified `unpin/` ZIP container embedded in every binary (aliases + man pages today), the byte-scan locator, and the `withAliases`/`withMan` build glue that produces it.
+- [embedded-man.md](embedded-man.md) — how `unpin man` works: the roff is embedded per package (killing the man-only data tarballs), and `unpin man` dispatches to the `unpins/man` package (a patched mandoc) which renders it via the stable `unpin bundle list|dump` interface.
 - [big-packages.md](big-packages.md) — playbook for `ffmpeg`-class packages with large dependency graphs, plus the static GTK2 recipe used by `gvim`.
 - [crypto-backend.md](crypto-backend.md) — why packages swap OpenSSL for mbedtls, the platform-conditional dependency, the per-consumer selector table, and the rtmpdump exception.
 - [testing.md](testing.md) — per-package × per-OS test-suite matrix: invocation, runtime deps (msys2/brew/nixpkgs), Linux/macOS/Windows quirks, rollout order.

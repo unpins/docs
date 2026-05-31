@@ -200,7 +200,7 @@ goes in `postFixup` referring to `<name>.exe`. The exception is when
 upstream's own fixupPhase touches the file (e.g. shebang rewriting on
 scripts that depend on the renamed binary) — then move it to
 `postInstall` to act before fixup. `lib.withAliases { primary =
-"<name>.exe"; ... }` works as-is since its UNPIN_META embed runs in
+"<name>.exe"; ... }` works as-is since its `unpin/aliases` embed runs in
 postFixup (after the hook).
 
 ```nix

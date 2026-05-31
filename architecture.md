@@ -2,7 +2,7 @@
 
 ## What ships
 
-Each `unpins/<pkg>` repository ships **one executable per OS** plus an optional `.tar.zst` data archive (man pages, completions, runtime data). The binary must run on a stock system with only what the OS itself provides — see [dynamic-link-policy.md](dynamic-link-policy.md).
+Each `unpins/<pkg>` repository ships **one executable per OS** plus an optional `.tar.zst` data archive (completions, runtime data). Man pages are no longer shipped in the archive — they are embedded inside the binary (see [embedded-man.md](embedded-man.md)). The binary must run on a stock system with only what the OS itself provides — see [dynamic-link-policy.md](dynamic-link-policy.md).
 
 ## Workspace layout
 

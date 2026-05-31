@@ -4,8 +4,7 @@ Every unpins executable can carry metadata *inside the binary* — multi-call
 aliases and man pages today, more later — with no companion file. The container
 is a **plain ZIP** holding entries under a reserved `unpin/` namespace; unpin
 finds it by the ZIP's own structure and reads `unpin/*` out of it. This is the
-single, format-agnostic mechanism that replaces the two earlier bespoke blocks
-(`UNPIN_META` text + `.unpin_man` `UPMAN` container).
+single, format-agnostic mechanism for everything unpin embeds in a binary.
 
 **Why a ZIP, not a hand-rolled container.** The producer is Python stdlib
 (`zipfile`) plus Nix/objcopy; the consumers are unpin (Rust `zip` crate, already
@@ -209,15 +208,16 @@ one `unpin/aliases` and the §4 guard never fires.
   materializes `unpin/*` entries (with size caps), enforces the `unpin/aliases`
   dedup guard (§4). `Ok(None)` = no `unpin/*` anywhere.
 - `Meta::aliases() -> Vec<String>` — parse `unpin/aliases` (dedup, skip blank/`#`).
-- `Meta::entries_under(prefix)` / `entry(path)` — raw access; `man.rs` builds its
-  page index from `unpin/man/`.
+- `Meta::entries_under(prefix)` / `entry(path)` — raw access. The stable
+  `unpin bundle list|dump` subcommand (`unpin/src/bundle.rs`) is built on these
+  and is what the `man` package consumes; see [embedded-man.md](embedded-man.md).
 - Caps: max entries, per-entry size, total `unpin/*` bytes, and a max file size to
   scan — so a crafted ZIP can't drive unbounded allocation.
 
 Dependencies: the `zip` crate (already linked, `deflate-flate2` feature) for
-reading; no ELF/PE/Mach-O parser. The man renderer (roff → terminal) is still
-deferred to the pandoc port — see [embedded-man.md](embedded-man.md) §6; until it
-lands `unpin man` reports the page it read and `--raw` dumps the roff.
+reading; no ELF/PE/Mach-O parser. Rendering man pages is **not** unpin's job —
+the `man` package (patched mandoc) pulls the roff back out via
+`unpin bundle dump` and renders it. See [embedded-man.md](embedded-man.md).
 
 ---
 
@@ -227,6 +227,3 @@ lands `unpin man` reports the page it read and `--raw` dumps the roff.
   unknown prefixes are ignored by older readers (no format-version byte needed).
 - Caps (reader-enforced): see §6. `deflate` only (no `zstd`) so the in-tool VFS
   (miniz) and `zipfile`<3.14 both read the same bytes.
-- This supersedes the `UNPIN_META` text block and the `.unpin_man` `UPMAN`
-  container. There is **no** backward-read of the old formats — a clean break;
-  the catalog is rebuilt against this format.
