@@ -4,6 +4,96 @@ When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shad
 
 This is distinct from the *whole-program-as-a-library* embed (e.g. dash inside git) in [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library) — there the goal is to hide every symbol but one; here every program keeps its own entry point and the programs are peers.
 
+## The dispatcher front-end (`lib.multicallDispatcherC`)
+
+Both recipes end the same way: a tiny C `main` that dispatches on `argv[0]`. That
+front-end is **shared** — generate it with `lib.multicallDispatcherC`, don't
+hand-copy it (the per-package copies had drifted into a dozen subtly different
+dialects). It emits `multicall/dispatcher.c`:
+
+```nix
+# In the consumer's postBuild, AFTER writing multicall/apps.list:
+#   printf '%s\n' "''${apps[@]}" > multicall/apps.list   # one applet name per line
+# Invoke at COLUMN 0 (heredoc `CBODY` terminators must reach the shell at col 0):
+${lib.multicallDispatcherC { inherit name; }}
+$CC -O2 -c -o multicall/dispatcher.o multicall/dispatcher.c
+```
+
+Contract and canonical behaviour (all fixed in the helper — nothing to re-decide
+per package):
+
+- **Applet list** comes from `multicall/apps.list`, one name per line. The caller
+  writes it (often the same list it uses to make the install symlinks).
+- **Symbol naming**: each applet's C symbol is `tr -c 'A-Za-z0-9_' '_'` of its
+  name, so a hyphenated applet (`srt-live-transmit`, `heif-enc`) maps to a legal
+  identifier (`srt_live_transmit_main`, `heif_enc_main`). Your per-tool
+  `objcopy --redefine-sym main=<sym>_main` rename **must** produce that same
+  symbol (plain tools need no sanitiser; `srt`/`librist`/`heif` already rename to
+  the sanitised form).
+- **Permissive dispatch**: a basename that isn't an applet (the canonical name, a
+  full path, or a renamed copy like CI's `smoke.exe`) falls through to `argv[1]`
+  as the applet, so renamed binaries and the smoke test keep working. (Older
+  packages keyed strictly on their own name and had to drop smoke — don't.)
+- **Bare/unknown** prints `usage` and exits 1, unless `defaultApplet` is passed:
+  `lib.multicallDispatcherC { name = "libwebp"; defaultApplet = "cwebp"; }` makes
+  a bare `libwebp -version` run `cwebp` (so `-version` smoke is clean). Used by
+  `libwebp` (cwebp), `flac` (flac), `vorbis-tools` (ogg123), `opus-tools`
+  (opusenc), and the Info-ZIP/bzip2 family below.
+
+`defaultApplet` also covers the **"the package's own tool self-detects its
+argv[0]"** pattern (`bzip2`/`unzip`/`zip`): put only the real `*_main` programs
+in `apps.list`, and let the upstream tool handle its built-in argv[0] aliases via
+the fallback. E.g. `bzip2` → `apps.list = bzip2 bzip2recover`, `defaultApplet =
+"bzip2"`; the `bunzip2`/`bzcat` aliases are NOT applets, so they fall through to
+`bzip2_main` with the original argv and bzip2 self-detects them. Same for `unzip`
+(applets `unzip funzip`, alias `zipinfo` → unzip), `zip` (applets `zip zipnote
+zipcloak zipsplit`, `defaultApplet = "zip"`). Caveat: when the canonical name is
+itself an applet (`zip`), invoking it as `zip <applet>` runs the primary tool
+with `<applet>` as an argument — the applet shims and a *renamed* binary's
+`<name> <applet>` form still dispatch; only that literal meta-form changes.
+
+Two parameters total: `name` and the optional `defaultApplet`. Everything that
+used to vary per package (list source, sanitiser, fallback style) is now fixed.
+
+**Two documented exceptions** that intentionally keep a hand-written dispatcher —
+the only genuine divergences the generator does not model:
+
+- `openjpeg`: a bare invocation prints a version banner and exits **0**. Every
+  `opj_*` tool exits 1 even on `-h`, so no `defaultApplet` gives a clean smoke;
+  the banner is the smoke target.
+- `libvpx`: `vpxenc`/`vpxdec`'s shared `tools_common.c` calls `usage_exit()` by
+  name; the dispatcher carries a per-tool function-pointer trampoline so each
+  tool keeps its **own** usage banner (more precise than the aom-style
+  "one global + localize the rest", which would show the template's banner).
+
+Reference: `unpins/{aom,avif,jxl,heif,srt,librist,rtmpdump,libwebp,flac,
+vorbis-tools,opus-tools,jpeg-tools,bzip2,unzip,zip}` all call it; `unpins/openjpeg`
++ `unpins/libvpx` are the exceptions (plus `unpins/xmllint`, whose tools export
+`xmllintMain`/`xmlcatalog_main` rather than `<applet>_main` and use a committed
+`dispatcher.c`).
+
+### Recipe-A variant — `lib.multicallTableDispatcherC`
+
+The `ld -r` family (`e2fsprogs`, `util-linux`, `shadow`, `findutils`,
+`procps-ng`) needs a **name→function table that is many-to-one** — e2fsprogs
+maps `mkfs.ext2/3/4` → `mke2fs_main`, `e2label`/`findfs` → `tune2fs_main` — so
+the symbol can't be derived from the applet name. They use the sibling generator
+`lib.multicallTableDispatcherC { name, defaultApplet ? null }`, whose contract is
+a TSV the caller writes first:
+
+```
+multicall/applets.list:   <applet-name>\t<fn-base>      # C symbol is <fn-base>_main
+```
+
+Aliases are extra rows pointing at the same `<fn-base>`. It is otherwise the same
+permissive, smoke-surviving dispatcher as `multicallDispatcherC`, plus it strips
+a libtool `lt-` argv[0] prefix and an unconditional `\\` dir separator (cosmo APE
+argv[0] can carry one and `_WIN32` isn't defined for cosmo). `defaultApplet` here
+is an `<fn-base>` (e.g. procps-ng's `src_ps_pscommand`, findutils' `find`), so a
+bare `--version` or a renamed binary routes to that tool. util-linux/shadow were
+strict (keyed on their own name); the shared generator unified them to permissive
+so the renamed-binary smoke works.
+
 Two recipes, by how the upstream builds the programs.
 
 ## Recipe A — `ld -r` relocatable merge (autotools/Make upstreams)
