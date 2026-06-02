@@ -26,6 +26,13 @@ Each pkg dir is its own repo — commit and push there, **not** from the workspa
   gh repo create unpins/<pkg> --public \
     --description "$(grep -oP '(?<=^  description = ")[^"]+' flake.nix)"
   ```
+- **The `unpin` Rust crate stays lint-clean.** Before every commit, both
+  `cargo fmt --check` and `cargo clippy --all-targets` must pass with **zero
+  warnings** — for the host target **and** the Windows cross-target
+  (`cargo clippy --target x86_64-pc-windows-gnu --all-targets`), since a chunk
+  of the code is `cfg(windows)`-only and never compiled by the host build.
+  Reach for a scoped `#[allow(...)]` with a one-line justification only when a
+  lint is a genuine false positive — never a crate-wide `allow`.
 
 ## Documentation
 
