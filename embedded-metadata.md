@@ -189,8 +189,15 @@ A `withMeta` step (folding the old `withAliases` + `withMan`), run in
   collection + validation as today).
 - Man: collect `$out/share/man/man[0-9]/*` (gunzip `.gz`); a body that is only a
   `.so <path>` becomes a symlink entry, otherwise a roff entry, `deflate`-
-  compressed. Cross builds (Windows/cosmo) source man from the matching Linux
-  build (man is OS-independent), version-locked to the same nixpkgs pin.
+  compressed. **Every** target — native, cross-linux, AND Windows/cosmo —
+  harvests man from its OWN `$out/share/man`: most cross builds install their
+  man like any other (pre-generated roff in the tarball, or generators that run
+  on the build host with no target execution), so they get the same pages
+  native does, version-locked to the actual build. The cross build's own man is
+  preferred; a consumer-set `winManRoot` (an explicit curated tree) overrides
+  it, and the version-locked nixpkgs graft (`manFallback`) is consulted only
+  when the cross build ships no man of its own — e.g. zstd, whose cmake gates
+  the man install on UNIX (false for mingw). See `withMan` in `nix-lib`.
 - Placement per §1: ELF/PE add-section or trailing; Mach-O trailing past the
   signature; cosmo add entries to the existing tail-ZIP. Produce with `zipfile`
   (stdlib): `deflate` + per-entry CRC are built in; for symlink entries set
