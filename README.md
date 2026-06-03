@@ -1,6 +1,6 @@
 # unpins documentation
 
-These are the internal docs for the [unpins](https://unpins.org) workspace — the build glue, per-platform gotchas, and recipes that produce the single-binary tools published on the site.
+These are the internal docs for the [unpins](https://unpins.org) workspace — the build glue, per-platform gotchas, and recipes that produce the single-binary programs published on the site.
 
 ## Getting started
 

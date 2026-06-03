@@ -18,7 +18,7 @@ unpins is a multi-repo workspace; contributions land in whichever repo owns the 
 
 Two questions before you start:
 
-1. **Does upstream already do what we'd do?** If `<owner>/<repo>` already publishes portable single-binary releases — `ripgrep` is the canonical example, with musl-static Linux, native macOS, and `.exe` for Windows on every tag — then `unpin install <owner>/<repo>` already works. **Don't package it.** The catalog exists for tools whose upstream doesn't ship this way.
+1. **Does upstream already do what we'd do?** If `<owner>/<repo>` already publishes portable single-binary releases — `ripgrep` is the canonical example, with musl-static Linux, native macOS, and `.exe` for Windows on every tag — then `unpin install <owner>/<repo>` already works. **Don't package it.** The catalog exists for programs whose upstream doesn't ship this way.
 2. **If we do need to package it, is it feasible?** Some upstream architectures don't reduce to a single binary (see [dynamic-link-policy.md](dynamic-link-policy.md), [platforms/mingw.md](platforms/mingw.md), and [platforms/cosmocc.md](platforms/cosmocc.md) for the known dead ends and escape hatches).
 
 If both check out, the path is [adding-a-package.md](adding-a-package.md). The checklist there is the path that's already worked for the existing catalog.

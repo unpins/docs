@@ -1,6 +1,6 @@
 # unpins
 
-Native single-binary builds of common CLI tools — `htop`, `jq`, `curl`, `tmux`, `tree`, `vim`, `gvim`, `coreutils`, `tar`, `file` — plus a Rust installer (`unpin`) that downloads them from GitHub releases. Each shipped artifact is one executable per OS, no third-party DLLs, no `/nix/store` closure at runtime.
+Native single-binary builds of common programs — `htop`, `jq`, `curl`, `tmux`, `tree`, `vim`, `gvim`, `coreutils`, `tar`, `file` — plus a Rust installer (`unpin`) that downloads them from GitHub releases. Each shipped artifact is one executable per OS, no third-party DLLs, no `/nix/store` closure at runtime.
 
 Website: <https://unpins.org>. GitHub org: <https://github.com/unpins>.
 

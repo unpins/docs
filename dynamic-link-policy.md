@@ -53,6 +53,6 @@ We accept this trade-off for packages whose mingw cross is infeasible because of
 
 ## Why the rule exists
 
-unpins distributes single-binary CLI tools meant to be dropped into a single directory. Shipping companion DLLs/dylibs/sos breaks that model — users would manage a directory of files per package, and `unpin`'s install/uninstall path assumes one artifact per binary.
+unpins distributes single-binary programs meant to be dropped into a single directory. Shipping companion DLLs/dylibs/sos breaks that model — users would manage a directory of files per package, and `unpin`'s install/uninstall path assumes one artifact per binary.
 
 Same rule already applied to Linux (musl) and macOS (libSystem-only) since the MVP; Windows joined when mingw cross builds were added. The user has explicitly rejected the "ship the DLLs in the same tarball" pattern (MSYS2 / Git-for-Windows style).
