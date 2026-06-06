@@ -45,6 +45,8 @@ Mirror `tree/README.md`:
 - One-line unpins blurb.
 - Sections: `Installation` (with `unpin <pkg>` and `unpin run <pkg>`), `Build locally` (with `nix build github:unpins/<pkg>`), `Manual download`.
 - Add a `Usage` section only when the binary's CLI is non-obvious (multicall dispatch like `coreutils --coreutils-prog=ls`, data-file conventions like `file`'s `magic.mgc` lookup).
+- If the package declares aliases (multicall applets or bundled commands), show a few representative ones inline and point to the authoritative full list — never paste the whole list. Use `unpin info <pkg>` as the pointer (it reads the binary's embedded `unpin/aliases`, so it always matches what shipped), or the tool's own `--help` when it already enumerates them (e.g. `unpin coreutils --help`). Keep it jargon-free for end users: state the outcome ("creates the commands `cpan`, `json_pp`, …"), not the `argv[0]` dispatch mechanism — that belongs in `Build notes`.
+- **We package, we don't plan upstream development.** The README describes what we ship; it must not contain roadmaps, porting plans, effort estimates, or "how someone could add platform X" write-ups. If a platform isn't shipped, say so in one line in `Build notes` and why (the upstream gap), and stop there — no speculative design. Porting belongs upstream or in an issue, never in the catalog README.
 
 ## 5. Build native
 
