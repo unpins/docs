@@ -18,7 +18,8 @@ invented framing.
 sentinel. That is gone. The ZIP is located by its native end-of-central-
 directory record; our data is identified by the `unpin/` entry-name namespace.
 The security of aliases never depended on a marker (see §4) — it lives in the
-catalog-owner gate and the blocklist, both upstream of this reader.
+catalog-owner gate and a per-name confirmation for credential commands, both
+upstream of this reader.
 
 ---
 
@@ -103,10 +104,13 @@ lzma
 unlzma
 ```
 
-The reader dedups, preserving first-seen order. Name **validation** (charset,
-length ≤ 64, no leading dot/dash, Windows-reserved, the credential/runtime
-blocklist) happens at install time in `unpin/src/aliases.rs::validate_alias` —
-unchanged by this format.
+The reader dedups, preserving first-seen order. Structural **validation**
+(printable-ASCII only — so punctuation applets like coreutils' `[` link — minus
+path separators and the Windows-invalid set, length ≤ 64, no leading dot/dash,
+Windows-reserved) happens at install time in
+`unpin/src/aliases.rs::validate_alias`, unchanged by this format. Credential
+names (`sudo`, `ssh`, …) are *not* rejected there; they pass validation and are
+gated by a per-name confirmation at link time (see §4).
 
 ### 3.2 Man pages — `unpin/man/<name>.<section>[`…`]`
 
@@ -146,10 +150,20 @@ reader** and do not rely on any container marker:
    **only** when `spec.owner == unpins`. A `<owner>/<repo>` install ignores all
    declared aliases regardless of what it embeds — so a foreign binary can never
    inject aliases, no matter what ZIPs it carries.
-2. **Blocklist + validation** (`validate_alias`): even a catalog package cannot
-   declare a blocked name, a path-traversal name, a Windows device name, or an
-   over-long/illegal name. This is the defense-in-depth layer if catalog CI is
-   ever compromised.
+2. **Structural validation** (`validate_alias`): even a catalog package cannot
+   declare a path-traversal name, a separator/Windows-invalid name, a Windows
+   device name, or an over-long/illegal name. At link creation a second,
+   kernel-level layer backs this up — `platform::create_alias_link` routes the
+   Unix symlink through cap-std (`openat2(RESOLVE_BENEATH)`), confining the link
+   name to the bin dir even if a bad name slipped past validation.
+3. **Credential confirmation** (`alias_needs_confirmation`): a tiny set of names
+   whose silent shadowing harvests secrets or escalates privilege — `sudo`, `su`,
+   `doas`, `ssh`, `gpg`, `gpg2` — is *not* refused (a catalog package may
+   legitimately own one) but requires an explicit per-name prompt before linking,
+   even under the default `aliases = yes`. `--yes` auto-confirms; a non-tty
+   prompt defaults to skip. This is the defense-in-depth layer if catalog CI is
+   ever compromised; ordinary footguns (`git`, `cargo`, a shell) are left to the
+   owner gate rather than bloating the list.
 
 A content marker / "exactly one block" rule would add nothing against either
 threat (a foreign binary is gated out by owner; a compromised CI would forge any
