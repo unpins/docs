@@ -198,7 +198,7 @@ Then re-thread into the consumer: `cross.file.override { libgnurx = libgnurxStat
 
 ## Packages blocked on mingw cross
 
-Documented dead ends — do not retry without a concrete upstream change to point to.
+Packages that don't cross-compile cleanly via `pkgsCross.mingwW64`, and how each one actually reaches Windows. The mingw dead ends here are real — don't retry the mingw path without a concrete upstream change to point to — but `bash` and `coreutils` ship via [cosmocc](cosmocc.md) instead, and `git` is a viable work-in-progress on mingw (below).
 
 ### bash (5.2 / 5.3)
 
@@ -210,11 +210,13 @@ Anything pulling bash transitively will also fail:
 - `samba` → `bash`.
 - Any derivation with `make-shell-wrapper-hook` in `nativeBuildInputs` at cross time.
 
-For ffmpeg: pass `withGnutls = false` and `withSamba = false`. For git: no clean override exists; either use a custom `Make_ming.mak`-style build or go [cosmocc](cosmocc.md).
+For ffmpeg: pass `withGnutls = false` and `withSamba = false`. For git, the clean override *does* exist — pin the build-host `bash`/`gawk`/`gnused`/`coreutils` to native (`buildPackages.*`) so the cross-bash chain never triggers; see the git recipe below.
 
-The shipped path for bash on Windows is Cosmopolitan — see `playground/bash/cosmo-windows.nix` (1.85 MB PE32+).
+The shipped path for bash on Windows is Cosmopolitan — see `unpins/bash/cosmo.nix` (1.85 MB PE32+); bash has been promoted out of `playground/bash/`.
 
 ### git
+
+**Status: viable on mingw but not yet shipped — WIP in `playground/git`**, pending the runtime-shell embed port (last subsection below).
 
 Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-static cascade, ~7-8 MB after static curl). The "blocked at every layer" story from earlier sessions was wrong: every dep-chain failure was a spurious cross-build of a tool that `gitMinimal` only uses to rewrite shebangs of shell scripts we delete anyway, OR was bypassable with a knob already used by other unpins packages. The single real source bug was patched in 5 lines.
 

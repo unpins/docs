@@ -50,7 +50,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [embedded-man.md](embedded-man.md) — `unpin man` dispatches to the `unpins/man` package (patched mandoc), which reads embedded roff via the stable `unpin bundle list|dump` interface; unpin itself renders nothing.
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
 - [multicall.md](multicall.md) — folding many upstream executables into one `argv[0]`-dispatching binary (`ld -r` and reuse-the-link-line recipes).
-- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, blocked packages.
+- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, mingw blockers (bash/coreutils ship via cosmo; git is a mingw WIP).
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + first-class `pkgs.pkgsCross.cosmo` (wired via `applyPatches` + `replaceCrossStdenv` in `windowsPkgs`).
 - [big-packages.md](big-packages.md) — ffmpeg-class playbook; static GTK2 recipe.
