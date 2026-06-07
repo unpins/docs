@@ -118,6 +118,13 @@ unpin install BurntSushi/ripgrep
 - **Full** — `why.html`: the whole story with nuance (single-binary policy,
   reproducibility, scope and limits, how-to-verify).
 
+## Links and calls to action
+
+Weave links into prose; don't leave standalone arrow-CTA lines (`→ Browse at
+unpins.org`). Link the brand word inline instead — **unpins** →
+<https://unpins.org> (the site/catalog), **`unpin`** → the CLI repo. A "see more"
+link belongs at the end of the sentence it extends, not on its own line.
+
 ## Demos
 
 GIF is being phased out for program demos: 256-color banding distorts terminal
