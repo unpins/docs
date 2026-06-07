@@ -12,6 +12,7 @@ These are the internal docs for the [unpins](https://unpins.org) workspace — t
 ## Project rules
 
 - [dynamic-link-policy.md](dynamic-link-policy.md) — the **single-binary rule** every artifact must satisfy, and how CI enforces it per OS.
+- [messaging.md](messaging.md) — how we **describe** unpins externally: slogan, the canonical project/package sentences, vocabulary, and which surface leads with what. Source of truth for all external copy.
 
 ## Per-platform reference
 

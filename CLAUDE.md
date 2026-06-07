@@ -43,6 +43,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [releasing.md](releasing.md) — release flow, tag format, common failure modes.
 - [architecture.md](architecture.md) — `mkStandaloneFlake`, where per-binary quirks live (inline) vs. transitive-lib overlay fragments (`nix-lib/{native,mingw}-overlay/`, `nix-lib/cosmo/`), `nix-lib` scope rule, refactor verification.
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
+- [messaging.md](messaging.md) — source of truth for external copy: slogan, the canonical project/package sentences, vocabulary (`programs` not `tools`; `self-contained` not `static`), per-surface hero emphasis.
 - [static-linking.md](static-linking.md) — `pkgsStatic` gotchas independent of OS (propagation, `.pc`/`Requires.private`, aggressive DCE, eval blockers, musl probes).
 - [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
 - [embedded-metadata.md](embedded-metadata.md) — the unified `unpin/` ZIP container embedded in every binary (aliases + man), byte-scan locator, `withAliases`/`withMan` glue, alias security model.
