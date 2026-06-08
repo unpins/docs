@@ -10,6 +10,7 @@ Before scaffolding, settle:
 - Does `pkgs.pkgsStatic.<pkg>` already exist in nixpkgs? Check `nix eval nixpkgs#pkgsStatic.<pkg>.version`.
 - Is Windows feasible? Try `nix eval --impure --expr '(import <nixpkgs> { config.allowUnsupportedSystem = true; }).pkgsCross.mingwW64.<pkg>.version'`. If the package fundamentally assumes POSIX (`fork`, signals, `/etc/<file>`, etc.) the mingw path is usually a dead end — see [platforms/mingw.md](platforms/mingw.md) and consider [platforms/cosmocc.md](platforms/cosmocc.md) instead.
 - Does the package need runtime data files (config dir, magic database, syntax files)? If yes, plan to follow [runtime-data.md](runtime-data.md) (`package_data` is already on by default; the question is whether the binary's lookup path needs patching).
+- **Reserved name?** A catalog *program* may not take the bare name of a helper verb (`man` today; `readme`/`search`/`changelog`/… later). Those names route to the `unpins/unpin-<verb>` helper packages through the verb dispatch (see [helper-verbs.md](helper-verbs.md)), so a program of the same bare name would be reachable only as `unpin run <name>`, never `unpin <name>`. A real general-purpose man, for instance, ships under its upstream name (`mandoc` / `man-db`), never `man`.
 - License: SPDX id of the upstream license, to be added to `website/gen-packages.py`.
 
 ## 2. Scaffold

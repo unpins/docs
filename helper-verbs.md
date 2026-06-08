@@ -135,19 +135,20 @@ All of them read package data through the **stable** `unpin bundle list|dump`
 interface ([embedded-man.md](embedded-man.md)), so unpin's core stays tiny as the
 family grows.
 
-## Status & migration
+## Status
 
-This is the **target** model; the steps below are not all done yet. Current
-reality (the `unpins/man` coincidence) is still what [embedded-man.md](embedded-man.md)
-describes.
+Implemented and live (2026-06-08):
 
-- **`unpin` crate.** Add the verb fallback to bare-name resolution
-  (`unpins/<token>` → `unpins/unpin-<token>`, gated on a genuine 404, bare names
-  only; see `parse_args` / the run resolver in `main.rs`). Skip `PATH`-linking
-  for `unpin-*` packages in `install/linker.rs`.
-- **The man package.** Republish `unpins/man` as **`unpins/unpin-man`** and retire
-  the old `unpins/man` releases (otherwise program-first dispatch resolves the old
-  helper as a "program"). The `binName` stops mattering — it is never linked.
-  Update [embedded-man.md](embedded-man.md) once this lands.
-- **Catalog policy.** Record the naming reservation (no program may take a verb's
-  bare name) in [adding-a-package.md](adding-a-package.md).
+- **`unpin` crate.** Bare-name resolution falls back `unpins/<token>` →
+  `unpins/unpin-<token>` on a genuine 404 (bare names only; see
+  `verb_fallback_spec` / the run resolver in `install/mod.rs`, and
+  `github::FetchError` for the 404-vs-transient distinction). The cache-first
+  check covers both candidates, so a resolved verb prints no "Resolving…" on
+  later runs. `install/linker.rs` skips `PATH`-linking for catalog `unpins/unpin-*`
+  packages — they install resident-only.
+- **The man package.** `unpins/man` was renamed to **`unpins/unpin-man`**; the
+  binary installs as `unpin-man` (action-build locates the primary at
+  `bin/<name>`). The old `unpins/man` is gone (404, no redirect), so program-first
+  dispatch falls through to the verb. See [embedded-man.md](embedded-man.md).
+- **Catalog policy.** The naming reservation (no program may take a verb's bare
+  name) is recorded in [adding-a-package.md](adding-a-package.md).

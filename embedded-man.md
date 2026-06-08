@@ -13,8 +13,8 @@ There are two pieces, owned in different places:
    [embedded-metadata.md](embedded-metadata.md) — that is the authoritative
    spec. This document covers only the *man* side: how a page is fetched and
    rendered.
-2. **Rendering** — done by the **`man` package** (`unpins/man`, a patched
-   mandoc), **not** by unpin. unpin "knows nothing about man."
+2. **Rendering** — done by the **`unpin-man` package** (`unpins/unpin-man`, a
+   patched mandoc), **not** by unpin. unpin "knows nothing about man."
 
 ## Architecture: man is a package, not a builtin
 
@@ -24,27 +24,26 @@ pandoc/mandoc port living in `unpin/src/man/`). That was **scrapped**
 maintenance burden, and FFI-linking mandoc's C into `unpin` would break unpin's
 zero-`unsafe`, near-zero-dependency invariant. Instead:
 
-> **`unpin man` is a thin verb dispatch to the `unpins/man` package — a patched
-> mandoc.** The mature, canonical C renderer lives *in the package*, not in
-> `unpin`; unpin stays pure Rust.
+> **`unpin man` is a thin verb dispatch to the `unpins/unpin-man` package — a
+> patched mandoc.** The mature, canonical C renderer lives *in the package*, not
+> in `unpin`; unpin stays pure Rust.
 
 Helper verbs in general (man today; changelog/readme conceivably later) are
-packages, not builtins. The only unpin-side surface is the `bundle` interface
-below. The durable cross-verb model — helpers as `unpins/unpin-<verb>` packages
-reached only via `unpin <verb>` and never placed on `PATH`, with the dispatch
-precedence and catalog naming reservation that keep `man` from colliding with the
-OS or the catalog — is specified in [helper-verbs.md](helper-verbs.md). The flow
-below still describes the current `unpins/man` (same-name) coincidence, which that
-model supersedes.
+packages, not builtins, named `unpins/unpin-<verb>` and reached only via
+`unpin <verb>` — never placed on `PATH`. The dispatch precedence and the catalog
+naming reservation that keep `man` from colliding with the OS or the catalog are
+specified in [helper-verbs.md](helper-verbs.md); the only unpin-side surface is
+the `bundle` interface below.
 
 ### Flow (man → unpin, not unpin → man)
 
 ```
 unpin man coreutils ls
-   │  default-verb dispatch: a non-subcommand first arg is retried as
-   │  `unpin run man coreutils ls` (parse_args injects the `run` verb)
+   │  default-run injection (parse_args) resolves the bare name `unpins/man` as a
+   │  program; on a genuine 404 it falls back to the `unpins/unpin-man` helper
+   │  package (helper-verbs.md) — fetched on demand, never linked onto PATH
    ▼
-runs the `man` package (unpins/man, patched mandoc) with args `coreutils ls`
+runs the unpin-man package (unpins/unpin-man, patched mandoc) with `coreutils ls`
    │  `run` exports $UNPIN_SELF = unpin's own path (install/mod.rs)
    ▼
 man front-end (unpin_man.c) shells back to unpin:
@@ -96,11 +95,12 @@ A whole-page `.so` (`vigr.8` → `.so man8/vipw.8`) is a ZIP **symlink** entry;
 mandoc to source from, so it only warns. Irrelevant in practice: catalog man is
 generated (help2man / asciidoctor) and only ever emits whole-page redirects.
 
-## The `man` package (`unpins/man`)
+## The `unpin-man` package (`unpins/unpin-man`)
 
 A patched mandoc 1.14.6 built through `mkStandaloneFlake`, released like any
-other catalog package (tag `v1.14.6-<pkgrel>`, `own_software = false`). Three
-source pieces:
+other catalog package (tag `v1.14.6-<pkgrel>`, `own_software = false`). It is a
+helper verb, so it ships under the `unpin-` prefix and is never linked onto PATH
+(see [helper-verbs.md](helper-verbs.md)). Three source pieces:
 
 - **`unpin-front-end.patch`** — renames mandoc's `main` → `mandoc_main`, and
   relinks the Makefile `man:` target around `unpin_man.o` + `$(MAIN_OBJS)` +
@@ -112,8 +112,9 @@ source pieces:
   across all three toolchains). mandoc auto-detects man vs mdoc.
 - **`flake.nix` / `cosmo.nix`** — the build. `buildFlags = ["man"]` (only the
   `man` target — the `mandoc` target would fail to link without `main`),
-  `doCheck = false` (the regress suite rebuilds `mandoc`), installs just
-  `bin/man`.
+  `doCheck = false` (the regress suite rebuilds `mandoc`). mandoc's build target
+  is `man`; the install renames it to `bin/unpin-man` so the binary, the asset,
+  and the package name agree (action-build locates the primary at `bin/<name>`).
 
 ### Platform notes (mandoc's configure runs probes)
 
@@ -146,8 +147,8 @@ The roff is still embedded into every package by `withMan` / `embedMan`
 (default-on) at build time, exactly as [embedded-metadata.md](embedded-metadata.md)
 §5 describes. `unpin` also self-embeds its own hand-authored `unpin.1` via
 `build.rs` (a tiny stored ZIP with one `unpin/man/unpin.1` entry), so
-`unpin man unpin` works — the `man` package reads it back out of the `unpin`
-binary through `unpin bundle`.
+`unpin man unpin` works — the `unpin-man` package reads it back out of the
+`unpin` binary through `unpin bundle`.
 
 See [runtime-data.md](runtime-data.md) for the broader picture of packages
 embedding what they used to ship as companion files.
