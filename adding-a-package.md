@@ -37,15 +37,15 @@ nix flake update                                     # bump to current nix-lib /
 
 ## 4. Write the README
 
-Mirror `tree/README.md`:
+Start from [`templates/README.md`](templates/README.md) — fill the `<…>` slots and delete the guidance comments. Filled references: `tree/README.md` (single command), `flac/README.md` (multicall). What the template encodes:
 
-- Title + one-line description.
-- CI badge (`![CI](https://github.com/unpins/<pkg>/actions/workflows/<pkg>.yml/badge.svg)`).
-- Platform badges (Linux/macOS, optionally Windows).
-- One-line unpins blurb.
-- Sections: `Installation` (with `unpin <pkg>` and `unpin run <pkg>`), `Build locally` (with `nix build github:unpins/<pkg>`), `Manual download`.
-- Add a `Usage` section only when the binary's CLI is non-obvious (multicall dispatch like `coreutils --coreutils-prog=ls`, data-file conventions like `file`'s `magic.mgc` lookup).
-- If the package declares aliases (multicall applets or bundled commands), show a few representative ones inline and point to the authoritative full list — never paste the whole list. Use `unpin info <pkg>` as the pointer (it reads the binary's embedded `unpin/aliases`, so it always matches what shipped), or the tool's own `--help` when it already enumerates them (e.g. `unpin coreutils --help`). Keep it jargon-free for end users: state the outcome ("creates the commands `cpan`, `json_pp`, …"), not the `argv[0]` dispatch mechanism — that belongs in `Build notes`.
+- Title + one-line description, CI badge (`![CI](https://github.com/unpins/<pkg>/actions/workflows/<pkg>.yml/badge.svg)`), platform badges (Linux/macOS, optionally Windows), one-line unpins blurb.
+- **`## Usage`** leads with the run form, then install — both always take the **package** name `<pkg>`, never a command name (`unpin <X>` resolves the repo `unpins/<X>`):
+  - `unpin <pkg> <args>` (run is the default verb, so it's omitted) runs it without installing;
+  - `unpin install <pkg>` puts it on PATH.
+- **Package name ≠ command name (multicall).** When the package name isn't itself a command users type (pciutils → lspci/setpci, coreutils → ls/cp), `unpin <command>` looks up a repo that doesn't exist and fails. Keep `<pkg>` in the invocations, and state the *outcome* — "creates the `lspci` and `setpci` commands" — never the `argv[0]` dispatch mechanism (that's Build notes). For long alias lists, show a few representative ones and point to `unpin info <pkg>` (it reads the binary's embedded `unpin/aliases`, so it always matches what shipped) or the tool's own `--help`; never paste the whole list.
+- **`## Man pages`**: `unpin man` takes the package name first, then an optional page (defaults to `<pkg>`) — `unpin man <pkg> [<page>]`. For a multicall, name the page: `unpin man <pkg> <applet>` (e.g. `unpin man pciutils lspci`). Omit the section if no man ships.
+- **`## Build locally`** (`nix build github:unpins/<pkg>` + `nix run`) and **`## Manual download`**.
 - **We package, we don't plan upstream development.** The README describes what we ship; it must not contain roadmaps, porting plans, effort estimates, or "how someone could add platform X" write-ups. If a platform isn't shipped, say so in one line in `Build notes` and why (the upstream gap), and stop there — no speculative design. Porting belongs upstream or in an issue, never in the catalog README.
 
 ## 5. Build native
@@ -109,7 +109,7 @@ Initial <pkg> package: <short summary>
 
 <details — what patches were needed, what's the bin size, etc.>
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
