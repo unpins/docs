@@ -2,6 +2,57 @@
 
 Order of operations when adding `<pkg>` to unpins, based on the file/htop/tree paths that have already worked.
 
+## Principles
+
+Two rules govern every package. Read them before reaching for a shortcut.
+
+**Ship every upstream feature.** Build the program with all of its features
+enabled — the catalog's value is the *complete* program as one binary, not a
+stripped-down one. Turn a feature off only when it is genuinely impossible on a
+target: it can't link statically / against musl, it can't cross-compile, or it
+needs an OS API the target lacks. "It was easier to disable" is never a reason.
+Note every dropped feature in the README's Build notes with the target and a
+one-line why (same rule [releasing.md](releasing.md) applies to `--disable-*`).
+Before disabling something to "save space", measure — static link + DCE makes
+"heavy" libs nearly free (see
+[static-linking.md](static-linking.md#dce-is-much-more-aggressive-than-you-expect)).
+
+**Reuse nix-lib's fixes — don't re-derive them.** When a library won't build
+static or cross, the fix very often already lives in `nix-lib`. Check before you
+debug:
+
+```bash
+ls ../nix-lib/native-overlay ../nix-lib/mingw-overlay ../nix-lib/cosmo  # is <lib>.nix here?
+nix eval ../nix-lib#lib.nativeFixes --apply builtins.attrNames          # the native fix fns
+```
+
+The two sides are wired differently — know which you're in:
+
+- **Native (Linux/macOS, `native-overlay/`)** — each fix is a function
+  `unpins-lib.lib.nativeFixes.<lib>` (`pkgs -> drv`). It is **not** applied to
+  your transitive deps automatically; thread it in with `.override`:
+
+  ```nix
+  build = pkgs:
+    let p = pkgs.pkgsStatic; in
+    p.<pkg>.override { <lib> = unpins-lib.lib.nativeFixes.<lib> p; };  # cf. tmux's libevent
+  ```
+
+  (If a `native-overlay/<pkg>.nix` exists for the *package itself*,
+  `mkStandaloneFlake` already uses it as the default native build — no `build`
+  closure needed.)
+
+- **Windows (mingw/cosmo, `mingw-overlay/` + `cosmo/`)** — these *are* applied
+  automatically, but only when you build **through the cross set**:
+  `mingwStaticCross pkgs`, or the cosmo cross set via the `./cosmo.nix` sidecar.
+  Build through it and `libidn2` / `libpsl` / `ncurses` / … are already fixed
+  transitively — don't re-fix them. Reaching for raw `pkgsCross.mingwW64.<lib>`
+  instead **bypasses the overlay and loses the fix.**
+
+Add a *new* fix to `nix-lib` only when none exists **and** ≥ 2 packages need it
+(see [architecture.md](architecture.md#where-per-target-quirks-live)); a
+one-package quirk stays inline in your flake.
+
 ## 1. Decide the scope up front
 
 Before scaffolding, settle:
@@ -59,6 +110,8 @@ file -L result/bin/<pkg>                             # expect: ELF 64-bit ... st
 
 If `pkgsStatic` fails on darwin (autoconf link probes), add a `build = pkgs: ...` closure to the consumer's `mkStandaloneFlake` call with the needed overrides — don't branch on system inside it; `mkStandaloneFlake` already handles per-target dispatch. See [platforms/darwin.md](platforms/darwin.md) for the canonical failure modes.
 
+If a **transitive library** is what fails (not your package itself), check `nix-lib/native-overlay/` first and thread in `unpins-lib.lib.nativeFixes.<lib>` rather than re-deriving the override — see [Principles](#principles).
+
 ## 6. Build Windows
 
 ```bash
@@ -68,18 +121,15 @@ $(find /nix/store -name 'x86_64-w64-mingw32-objdump' | head -1) \
   -p result/bin/<pkg>.exe | grep 'DLL Name'           # expect only KERNEL32 / msvcrt / SHLWAPI etc.
 ```
 
+Build **through `mingwStaticCross pkgs`** (in your `windowsBuild` closure), not raw `pkgsCross.mingwW64` — that's what applies the `mingw-overlay/` fixes (`libidn2`, `libpsl`, `ncurses`, …) transitively, so you don't re-fix a lib that's already handled. Same for cosmo via the cosmo cross set. See [Principles](#principles).
+
 If a `lib*.dll` shows up, see [platforms/mingw.md](platforms/mingw.md) — the static-lib static-link toolbox covers most cases. If the build itself fails, the package may be one of the mingw dead-ends (bash, git — both blocked on POSIX assumptions in upstream + nixpkgs). Try the cosmo route via a `./cosmo.nix` sidecar — that's how `coreutils` ships its Windows build. See [platforms/cosmocc.md](platforms/cosmocc.md).
 
 ## 7. Handle runtime data if the package needs it
 
-`package_data` is already `true` by default in `mkStandaloneFlake`. action-build conditions the `.tar.zst` step on `result/share/` existing, so packages that don't produce a `share/` subtree (jq, htop, ...) silently skip it. You don't need to do anything for them.
+If the program needs files at runtime (a magic database, a syntax/runtime tree, completions), **embed them in the binary** — that's the norm and it keeps the single-binary contract. [runtime-data.md](runtime-data.md) has the two patterns (a compiled-in blob; an embedded ZIP + in-tool VFS) and how to verify nothing is read from `/nix/store`.
 
-For packages that **do** have a `share/` subtree, two things matter:
-
-1. The `<pkg>-<tag>-data.tar.zst` companion will be published automatically. `unpin install` downloads and extracts it next to the binary.
-2. If the binary looks up runtime files via absolute paths baked at compile time (the common case — autotools' `--datadir=<prefix>/share`), the compiled path points into `/nix/store/...` and won't exist on the user's machine. Patch the binary to look relative to the executable instead. See [runtime-data.md](runtime-data.md) for `/proc/self/exe` (Linux) and `_NSGetExecutablePath` (macOS) recipes.
-
-To suppress the companion entirely (rare — only if `share/` exists but you don't want it shipped), set `package_data = false` explicitly.
+`package_data` (a companion `<pkg>-<tag>-data.tar.zst`) is **off by default** (`package_data ? false`) and is the fallback only for data that genuinely can't be embedded. Set `package_data = true` just for those: action-build then publishes `result/share/` and `unpin install` extracts it beside the binary — but the program must find that data relative to the executable, not via the baked-in `/nix/store` path, so patch the lookup ([runtime-data.md](runtime-data.md) has the `/proc/self/exe` / `_NSGetExecutablePath` / `GetModuleFileNameA` recipes). Most packages need none of this.
 
 ## 8. Update the website
 
@@ -132,11 +182,12 @@ Commit and push `website/packages.html` + `gen-packages.py` in the `website/` re
 - [ ] `flake.nix` calls `mkStandaloneFlake`
 - [ ] `flake.lock` present (generated by `nix flake update`)
 - [ ] `.gitignore` (3 lines)
+- [ ] All upstream features enabled; any feature dropped because it's impossible on a target is noted in the README's Build notes with a one-line reason
 - [ ] `README.md` follows the canonical template
 - [ ] `.github/workflows/<pkg>.yml` and `release.yml`
 - [ ] Native build: produces `statically linked` ELF on Linux, libSystem-only on macOS
 - [ ] Windows build: produces PE32+ with only system DLLs imported
-- [ ] Runtime-data lookup verified if the package has a `share/` subtree (see [runtime-data.md](runtime-data.md))
+- [ ] Runtime data (if any) embedded and verified not to read from `/nix/store` (see [runtime-data.md](runtime-data.md))
 - [ ] `packages.html` regenerated (license auto-derived from `meta.license`; set the `license` arg only if it's missing or noisy)
 - [ ] Git repo initialized with `git init -b main`, first commit lands
 - [ ] GitHub repo created, description matches `flake.nix`, `git push -u origin main`

@@ -208,7 +208,7 @@ Hydra's cached `atf-aarch64-apple-darwin` was built natively (build == host == c
 
 `isCross` is structural in nixpkgs — derived at package set construction from `hostPlatform.config != buildPlatform.config`, not a flag we can flip via overlay. And autotools shares the same channel. No way to fool one without fooling the other.
 
-**Use `pkgs.pkgsStatic.<name>` + per-package `drv.override` / `drv.overrideAttrs` via the `fixes` registry.** The 30-60min "first CI" toolchain rebuild for pkgsStatic-darwin was a one-time cost already paid via `unpins.cachix.org`; new packages only rebuild themselves.
+**Use `pkgs.pkgsStatic.<name>` + per-package `drv.override` / `drv.overrideAttrs` (shared lib fixes via `nativeFixes`).** The 30-60min "first CI" toolchain rebuild for pkgsStatic-darwin was a one-time cost already paid via `unpins.cachix.org`; new packages only rebuild themselves.
 
 ## 26.05 sunset
 

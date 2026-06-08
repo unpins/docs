@@ -6,7 +6,7 @@ These are the internal docs for the [unpins](https://unpins.org) workspace — t
 
 - **Contributing for the first time?** [contributing.md](contributing.md) explains which repo owns what and the conventions to follow.
 - **Adding a new package?** Walk through [adding-a-package.md](adding-a-package.md) — an end-to-end checklist from `flake.nix` scaffolding to first release.
-- **Understanding the build glue?** [architecture.md](architecture.md) covers `mkStandaloneFlake`, the `fixes` registry in `nix-lib`, and when to extend `nix-lib` versus keep an override inline.
+- **Understanding the build glue?** [architecture.md](architecture.md) covers `mkStandaloneFlake`, where per-binary quirks live (inline) vs. transitive-library fixes (`nativeFixes` + the `native-overlay` / `mingw-overlay` / `cosmo` fragments), and when to extend `nix-lib` versus keep an override inline.
 - **Cutting a release?** [releasing.md](releasing.md) — tag format, the Build/Release workflow split, Cachix, common failure modes.
 
 ## Project rules
@@ -24,7 +24,7 @@ Cumulative logs of gotchas, dead ends, and known fixes — so the next person do
 
 ## Recipes
 
-- [patches.md](patches.md) — patch-writing gotchas: regenerate via `diff -u` (and why hand-edited hunks fail silently), nixpkgs path-style headers, where to apply the patch (consumer flake vs. `fixes` registry vs. `mingwOverlay`), fake-static library construction, symbol-collision recipe for whole-program embedding.
+- [patches.md](patches.md) — patch-writing gotchas: regenerate via `diff -u` (and why hand-edited hunks fail silently), nixpkgs path-style headers, where to apply the patch (consumer flake vs. a `native-overlay` / `mingw-overlay` / `cosmo` fragment), fake-static library construction, symbol-collision recipe for whole-program embedding.
 - [runtime-data.md](runtime-data.md) — packages that need data files at runtime (`vim`, `gvim`, `file`). The two embedding patterns (compiled-in blob; embedded ZIP + in-tool VFS), with the opt-in `package_data` companion archive + relative-to-exe lookup as the fallback.
 - [embedded-metadata.md](embedded-metadata.md) — the unified `unpin/` ZIP container embedded in every binary (aliases + man pages today), the byte-scan locator, and the `withAliases`/`withMan` build glue that produces it.
 - [embedded-man.md](embedded-man.md) — how `unpin man` works: the roff is embedded per package (killing the man-only data tarballs), and `unpin man` dispatches to the `unpins/unpin-man` package (a patched mandoc) which renders it via the stable `unpin bundle list|dump` interface.

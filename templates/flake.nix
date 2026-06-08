@@ -23,8 +23,11 @@
       # docs/runtime-data.md when the binary's lookup path needs patching.
       # package_data = true;
 
-      # When pkgsStatic.<pkg> + the fixes registry isn't enough, supply explicit
-      # builders here. See e.g. file/flake.nix, tree/flake.nix, vim/flake.nix.
+      # When pkgsStatic.<pkg> isn't enough, supply explicit builders here. Enable
+      # ALL upstream features; reuse nix-lib's library fixes rather than
+      # re-deriving them (native: unpins-lib.lib.nativeFixes.<lib>; mingw/cosmo:
+      # build through the cross set). See docs/adding-a-package.md#principles and
+      # e.g. file/flake.nix, tree/flake.nix, vim/flake.nix.
       # build       = pkgs: ...;
       # windowsBuild = pkgs: ...;
 

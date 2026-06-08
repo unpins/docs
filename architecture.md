@@ -2,7 +2,7 @@
 
 ## What ships
 
-Each `unpins/<pkg>` repository ships **one executable per OS** plus an optional `.tar.zst` data archive (completions, runtime data). Man pages are no longer shipped in the archive — they are embedded inside the binary (see [embedded-man.md](embedded-man.md)). The binary must run on a stock system with only what the OS itself provides — see [dynamic-link-policy.md](dynamic-link-policy.md).
+Each `unpins/<pkg>` repository ships **one executable per OS**. Runtime data (magic databases, runtime trees, completions) and man pages are **embedded inside the binary** (see [runtime-data.md](runtime-data.md) and [embedded-man.md](embedded-man.md)); a `.tar.zst` companion archive (`package_data`) is a rare opt-in fallback for data that can't be embedded. The binary must run on a stock system with only what the OS itself provides — see [dynamic-link-policy.md](dynamic-link-policy.md).
 
 ## Workspace layout
 
@@ -45,7 +45,7 @@ manifest                                          — read by action-build for C
 | `linuxOnly` | `false` | Suppresses every Darwin attr from `packages.<sys>` (kmod, util-linux, shadow, procps-ng — Linux-kernel-only tools). |
 | `windows` | `false` | Set to `true` to enable the plain mingw cross path: `(mingwStaticCross pkgs).<pkgsAttr>`. (`windowsBuild` not null also enables it.) |
 | `windowsCosmo` | `false` | Legacy shortcut for `windowsBuild = pkgs: (cosmoStaticCross pkgs).<pkgsAttr>` (no consumer customization). The catalog now uses the `./cosmo.nix` sidecar pattern via `windowsBuild` for symmetry with mingw; this flag stays for one-liner cases. See [platforms/cosmocc.md](platforms/cosmocc.md). |
-| `package_data` | `true` | Tells action-build to also publish `result/share` as a `.tar.zst`. |
+| `package_data` | `false` | Off by default — embedding runtime data in the binary is the norm. Set `true` only for data that genuinely can't be embedded; action-build then publishes `result/share` as a `.tar.zst`. See [runtime-data.md](runtime-data.md). |
 | `bootstrap_naming` | `false` | Used by `unpin/` itself for the bootstrap asset name convention. |
 | `own_software` | `false` | Marks `unpin/` itself (and any future first-party tool) — affects release notes. |
 
@@ -62,19 +62,30 @@ Per-binary quirks are **inline in the consumer flake**, not in `nix-lib`:
 
 For substantial multi-step recipes (multicall via post-link `ld -r`, big patch sets, ...), the consumer flake calls `import ./multicall.nix { lib = pkgs.lib // unpins-lib.lib; } pkgs` from a sibling file.
 
-`nix-lib` retains three overlay-fragment directories for **transitive lib deps** — quirks that one consumer would otherwise have to apply to every other consumer's transitive closure:
+`nix-lib` retains three directories of **transitive lib-dep fixes** — quirks that one consumer would otherwise have to re-apply to every other consumer's transitive closure. All three are auto-discovered via `readDir`:
 
 ```
-nix-lib/native-overlay/<lib>.nix      # cross-darwin / pkgsStatic-linux lib fixes (dav1d, libevent, libopus)
-nix-lib/mingw-overlay/<lib>.nix       # spliced into mingwStaticCross via overlay (libidn2, libpsl, ncurses)
-nix-lib/cosmo/<lib>.nix               # spliced into cosmoStaticCross (libedit, libevent, ncurses, openssl)
+nix-lib/native-overlay/<lib>.nix      # native (pkgsStatic-linux + cross-darwin) — e.g. dav1d, libevent, libopus, svt-av1
+nix-lib/mingw-overlay/<lib>.nix       # mingw cross — e.g. libidn2, libpsl, ncurses
+nix-lib/cosmo/<lib>.nix               # cosmo cross — e.g. libedit, libevent, ncurses, openssl
 ```
 
-Each is auto-discovered via `readDir`. Add a new file here only when the fix is consumed by ≥ 2 packages transitively (e.g. ffmpeg + a future consumer both wanting a static `dav1d`); a one-binary quirk belongs in that binary's flake.
+**How a consumer reaches each — and where it trips people up.** The native side and the cross side are wired *differently*; a fix you "can't find" is usually one you're reaching for the wrong way:
 
-When an overlay fragment propagates a *modified* dep to a consumer, reference it as `self.X`, **not** `super.X` — `super.X` is the pre-overlay vanilla derivation, so using it spawns a second phantom copy of the lib alongside the fixed one and the consumer may link the wrong one (see [static-linking.md](static-linking.md#propagation--outputs)).
+- **`native-overlay/`** is **not an overlay** despite the directory name. Each file is a function exposed as `unpins-lib.lib.nativeFixes.<lib>` (`pkgs -> drv`). The consumer **calls it explicitly** and threads the result in — nothing rewrites your transitive closure for you:
 
-`mingw-overlay` entries are stitched into `mingwStaticCross pkgs` as overlay fragments, so curl, ffmpeg, etc. transparently see the fixed `libidn2` / `libpsl` / `ncurses`. The `cosmo/` directory has the analogous role for `cosmoStaticCross`.
+  ```nix
+  build = pkgs: let p = pkgs.pkgsStatic; in
+    p.<pkg>.override { <lib> = unpins-lib.lib.nativeFixes.<lib> p; };   # cf. tmux's libevent, ffmpeg's codec libs
+  ```
+
+  The one automatic use: when you supply no `build` closure, `mkStandaloneFlake` resolves the package's *own* build to `nativeFixes.<name>` if a `native-overlay/<name>.nix` exists, else `pkgs.pkgsStatic.<name>` (flake.nix `rawBuild`).
+
+- **`mingw-overlay/` and `cosmo/`** *are* real overlays, stitched into `mingwStaticCross pkgs` and the cosmo cross set respectively. Build **through that set** and the fixed `libidn2` / `libpsl` / `ncurses` / … are already in place transitively — curl, ffmpeg, etc. get them for free. Bypassing the set (raw `pkgsCross.mingwW64.<lib>`) loses the fix.
+
+Add a new file to any of the three only when the fix is consumed by **≥ 2 packages** transitively (e.g. ffmpeg + a future consumer both wanting a static `dav1d`); a one-binary quirk belongs inline in that binary's flake.
+
+When you *write* a `mingw-overlay` / `cosmo` fragment that propagates a modified dep, reference it as `self.X`, **not** `super.X` — `super.X` is the pre-overlay vanilla derivation, so using it spawns a second phantom copy of the lib alongside the fixed one and the consumer may link the wrong one (see [static-linking.md](static-linking.md#propagation--outputs)).
 
 ## `mingwStaticCross pkgs`
 

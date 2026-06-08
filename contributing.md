@@ -9,7 +9,7 @@ unpins is a multi-repo workspace; contributions land in whichever repo owns the 
 | A bug in an unpins-built binary, or a packaging fix | The package's own repo (e.g. [`unpins/htop`](https://github.com/unpins/htop)). |
 | A new package proposal | Open an issue in [`unpins/docs`](https://github.com/unpins/docs) first to align on scope and platform feasibility, then push the new package as its own repo. |
 | The `unpin` CLI itself (the installer) | [`unpins/unpin`](https://github.com/unpins/unpin). |
-| Shared build helpers / `fixes` registry | [`unpins/nix-lib`](https://github.com/unpins/nix-lib). |
+| Shared build helpers / transitive library-dep fixes | [`unpins/nix-lib`](https://github.com/unpins/nix-lib). |
 | CI workflows | [`unpins/action-build`](https://github.com/unpins/action-build). |
 | Website content | [`unpins/website`](https://github.com/unpins/website). |
 | These docs / architecture / patch recipes | [`unpins/docs`](https://github.com/unpins/docs). |
@@ -30,12 +30,12 @@ If both check out, the path is [adding-a-package.md](adding-a-package.md). The c
 - AI-assisted commits carry the trailer:
 
   ```
-  Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
   ```
 
 ## Code conventions (Nix)
 
-- Per-package quirks live in [`nix-lib`'s `fixes` registry](architecture.md#the-fixes-registry), not as conditionals inside the consumer flake.
+- Per-binary quirks live **inline** in the consumer flake's `build` / `windowsBuild` closures, *not* in `nix-lib`. Only a fix to a transitive **library** dep that ≥ 2 packages pull in belongs in `nix-lib` (`native-overlay/` / `mingw-overlay/` / `cosmo/`) — see [where per-target quirks live](architecture.md#where-per-target-quirks-live).
 - When a quirk is genuinely one-off (a custom `Make_ming.mak`, a one-line `substituteInPlace`), keep it inline in the consumer flake — don't promote it to a helper.
 - The "≥ 2 callers today" rule applies (see [`nix-lib` scope](architecture.md#nix-lib-scope)) — speculative abstractions stay out of `nix-lib`.
 
