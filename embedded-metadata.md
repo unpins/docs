@@ -195,8 +195,9 @@ binary's ZIP.
 
 ### 5.2 Catalog packages (nix-lib)
 
-A `withMeta` step (folding the old `withAliases` + `withMan`), run in
-`postFixup` after strip, ensures the binary has a ZIP and puts `unpin/*` in it:
+The `withAliases` and `withMan` steps, run in `postFixup` after strip, ensure the
+binary has a ZIP and add `unpin/*` to it. They compose order-free — each just
+adds its entries to the one ZIP, creating it if absent:
 
 - Aliases: write `unpin/aliases` (one name per line) when the package declares
   them (explicit list or auto-collected multi-call applet symlinks, same

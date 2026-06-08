@@ -1,95 +1,125 @@
 # Packages with runtime data
 
-Some packages need files beyond the binary at runtime: `vim` needs its `share/vim/<ver>/` runtime tree, `gvim` the same, `file` needs `share/misc/magic.mgc`, etc. unpins handles this with a companion data archive plus a relative-to-exe lookup pattern.
+Some programs need files beyond the executable at runtime: `vim` needs its
+`share/vim/<ver>/` runtime tree (syntax, ftplugin, doc, …), `gvim` the same,
+`file` needs its compiled magic database (`magic.mgc`). unpins ships these
+**inside the binary** — no companion file, no extract-on-first-run — so the
+single-binary contract holds. A separate `.tar.zst` next to the binary
+(`package_data`) still exists for the rare case embedding can't cover, but it is
+**off by default**; embedding is the norm.
 
-## The data archive
+There are two embedding patterns, picked by how the program consumes the data.
 
-`package_data` is already `true` by default in `mkStandaloneFlake`. Action-build conditions the tar step on `result/share/` actually existing — packages without it (jq, htop, ...) silently skip the data archive. Packages that produce a `share/` subtree get `<pkg>-<tag>-data.tar.zst` attached to the GitHub release automatically.
+## Pattern 1 — compiled-in blob (one file behind a load-from-buffer API)
 
-The `unpin` CLI detects the companion (`<pkg>-<tag>-data.tar.zst`) and extracts it into the version directory, so the on-disk layout after `unpin install <pkg>` looks like (Linux defaults):
+When the data is a single blob the program loads through a library call, compile
+it straight into the binary and feed the in-memory buffer to that call. Best when
+upstream already has a "load from a buffer" entry point.
+
+`file` is the worked example (`file/flake.nix` + `file/file-embed-magic.patch`):
+
+1. Let the normal build generate `magic/magic.mgc` from the ASCII `Magdir/`
+   tables.
+2. A `postBuild` step writes a C header with
+   `xxd -n magic_mgc -i magic/magic.mgc > src/embedded_magic.h`, then relinks the
+   binary.
+3. The patch wires `file.c::load()` to feed that blob to `magic_load_buffers()`
+   when the user passed no `-m` and set no `$MAGIC`; explicit `-m` / `$MAGIC`
+   still go through `magic_load`, so power users are unaffected.
+
+The blob is embedded **raw** (not gzip): the release asset is already zstd-19
+compressed, and zstd over a pre-gzipped blob recovers almost nothing (`file`'s db
+is ~8.5 MB either way).
+
+## Pattern 2 — embedded ZIP + in-tool VFS (a tree opened by path)
+
+When the program opens many files by path at runtime (a whole runtime tree), pack
+the tree into a ZIP, link it into the binary as a section, and add a tiny virtual
+filesystem that intercepts the program's own file calls for a marker path and
+serves them from the in-memory ZIP.
+
+`vim` / `gvim` are the worked example (`vim/flake.nix`; VFS sources
+`vim/unpins_vfs.c`, `unpins_init.c`, `miniz.c`, `unpins_runtime_data.S`). The
+build (`injectVfs`):
+
+1. Packs `share/vim/vim<NN>` to a deflate ZIP (`zip -9`); the major-version dir
+   name is read out of the tree, not tracked by hand.
+2. Stages it at `src/unpins_runtime.zip` and links it into the binary as a
+   section via `.incbin` (`unpins_runtime_data.S`).
+3. Copies in a ~410-LOC C + miniz VFS layer. `unpins_init()` is injected right
+   after `mch_early_init()` in `main.c`, and a hooks include goes **inside**
+   `vim.h`'s `VIM__H` guard so vim's `mch_open` / `mch_fopen` route paths under
+   the VFS marker to the in-memory ZIP. On Windows those are real functions
+   (wide-char wrappers), so their bodies are patched to dispatch virtual paths at
+   entry instead of via macro.
+4. `postInstall` removes the on-disk `share/vim/vim*` — the tree now lives only
+   in the binary.
+
+The VFS sources live in the package repo (copy `vim/`'s as a starting point);
+miniz is built with `-DMINIZ_NO_*` so only the inflate path is linked.
+
+> Don't confuse this with the `unpin/*` metadata ZIP (aliases + man pages, see
+> [embedded-metadata.md](embedded-metadata.md)). That is unpin's own namespace,
+> located by a whole-file byte scan and read by the `unpin` CLI; a package's
+> runtime VFS ZIP is a separate blob in its own section, read by the program
+> itself, and carries no `unpin/` entries.
+
+## Fallback — companion archive (`package_data`, opt-in)
+
+`package_data` is `false` by default in `mkStandaloneFlake`. Set it `true` only
+for a package that genuinely can't embed its data. action-build then attaches
+`<pkg>-<tag>-data.tar.zst` (built from `result/share/`, gated on it existing) to
+the GitHub release, and `unpin install <pkg>` extracts it into the version
+directory:
 
 ```
 ~/.local/share/unpin/<owner>/<pkg>/<tag>/
 ├── bin/<pkg>
-└── share/
-    └── ...                       # contents of the data archive
+└── share/…                       # contents of the data archive
 ```
 
-`~/.local/bin/<pkg>` symlinks to `bin/<pkg>` inside that directory. On Windows the layout collapses into `%LOCALAPPDATA%\unpin\packages\<owner>\<pkg>\<tag>\` plus a `.cmd` wrapper next to `unpin.exe`.
+`~/.local/bin/<pkg>` symlinks to `bin/<pkg>`; on Windows the layout collapses into
+`%LOCALAPPDATA%\unpin\packages\<owner>\<pkg>\<tag>\` plus a `.cmd` wrapper. On
+disk the binary must then find that data **relative to itself**, not via the
+`/nix/store/...` path baked at build time.
 
-## Relative-to-exe lookup
+### Relative-to-exe lookup (for the companion-archive path)
 
-When the upstream build bakes `share/...` paths into the binary, those paths point into `/nix/store/HASH-<pkg>-VER/share/...` — a path that doesn't exist on the user's machine. The binary either errors at startup or silently falls back to a degraded mode.
+Resolve the running executable, then look for the data beside it:
 
-Patch the binary to look up the data relative to the running executable:
+- **Linux** — `readlink("/proc/self/exe", …)`
+- **macOS** — `_NSGetExecutablePath(…)`
+- **Windows** — `GetModuleFileNameA(NULL, …)`
 
-### Linux
+Lookup order, first hit wins: `$<EXE>/../share/<pkg>/<data>`, then
+`$<EXE>/share/<pkg>/<data>`, then `$<EXE>/<data>`. If upstream already honors a
+`$<EXE>/share/<thing>` lookup or a `<NAME>_RUNTIME` env var, just package the
+data; don't patch. If it bakes absolute paths via autotools
+(`--datadir=<prefix>/share`), patch the lookup function — copy upstream's own
+Windows fallback ladder for `__linux__` / `__APPLE__`.
 
-```c
-#include <unistd.h>
-#include <limits.h>
+## Decision: which approach?
 
-char exepath[PATH_MAX];
-ssize_t n = readlink("/proc/self/exe", exepath, sizeof(exepath) - 1);
-if (n > 0) {
-    exepath[n] = '\0';
-    /* exedir/../share/... */
-}
-```
-
-### macOS
-
-```c
-#include <mach-o/dyld.h>
-
-char exepath[PATH_MAX];
-uint32_t sz = sizeof(exepath);
-if (_NSGetExecutablePath(exepath, &sz) == 0) {
-    /* exedir/../share/... */
-}
-```
-
-### Windows
-
-```c
-#include <windows.h>
-
-char exepath[MAX_PATH];
-if (GetModuleFileNameA(NULL, exepath, MAX_PATH)) {
-    /* exedir/../share/... */
-}
-```
-
-Conventional lookup order — pick the first that exists:
-
-1. `$<EXE>/../share/<pkg>/<data>` (when `argv[0]` resolves under a `bin/` dir)
-2. `$<EXE>/share/<pkg>/<data>` (flat layout)
-3. `$<EXE>/<data>` (single-dir co-location)
-
-This mirrors the convention upstream Windows tools like `file` already follow via `_w32_get_magic_relative_to`.
-
-## Worked examples in the workspace
-
-- **`vim`** — Vim has native `$VIMRUNTIME` discovery; the binary already locates `share/vim/<ver>/` relative to itself. No patch needed; the default `package_data = true` is enough.
-- **`gvim`** — Same as vim.
-- **`file`** — Upstream `magic.c`'s `get_default_magic()` already searches relative to `argv[0]` on Windows (`_w32_get_magic_relative_to`). The `file/file-magic-relative.patch` extends the same logic to Linux (`/proc/self/exe`) and macOS (`_NSGetExecutablePath`), reading `<exedir>/../share/misc/magic.mgc`. See `file/flake.nix`.
-
-## Decision: patch or rely on upstream?
-
-- If upstream already supports a `$<EXE>/share/<thing>` lookup or honors a `<NAME>_RUNTIME` env var, just package the data; don't patch.
-- If upstream bakes absolute paths via autotools (`--datadir=<prefix>/share`), patch the lookup function. Use the existing Windows code in upstream as a model — copy the same fallback ladder for `__linux__` / `__APPLE__`.
-- Never wrap the binary in a shell script that sets env vars — that breaks the single-binary contract.
+- **One blob behind a load-from-buffer API** → Pattern 1 (compiled-in). Smallest,
+  simplest, no VFS.
+- **A tree the program opens by path** → Pattern 2 (embedded ZIP + VFS). Single
+  file, no first-run extract.
+- **Neither fits** (very large data, or a lookup you can't intercept) →
+  `package_data` companion archive + relative-to-exe lookup.
+- Never wrap the binary in a shell script that sets env vars — that breaks the
+  single-binary contract.
 
 ## Testing
 
-After building, copy the binary to a fresh directory and verify the runtime lookup:
+Embedded data: copy **only** the binary to a fresh, empty directory and confirm
+it still works with no `share/` beside it:
 
 ```bash
-mkdir -p /tmp/<pkg>-test/bin /tmp/<pkg>-test/share/<pkg>
-cp result/bin/<pkg> /tmp/<pkg>-test/bin/
-cp -r result/share/<pkg>/* /tmp/<pkg>-test/share/<pkg>/
-
-/tmp/<pkg>-test/bin/<pkg> --version          # should report the relative-lookup data path
+mkdir -p /tmp/<pkg>-test && cp result/bin/<pkg> /tmp/<pkg>-test/
+cd /tmp/<pkg>-test && ./<pkg> --version    # must not need any companion file
 ```
 
-If the binary still reports `/nix/store/...`, the patch didn't apply — verify with `strings result/bin/<pkg> | grep -E 'share/<pkg>|/proc/self/exe|_NSGetExecutablePath'`.
+For the companion-archive path, instead verify the relative lookup resolves
+(binary plus `share/` in a fresh dir, never `/nix/store/...`). If a binary still
+reports a `/nix/store/...` data path, its lookup wasn't patched —
+`strings result/bin/<pkg> | grep -E 'share/<pkg>|/proc/self/exe|_NSGetExecutablePath'`.

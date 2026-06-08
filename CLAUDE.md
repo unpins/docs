@@ -45,7 +45,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
 - [messaging.md](messaging.md) — source of truth for external copy: slogan, the canonical project/package sentences, vocabulary (`programs` not `tools`; `self-contained` not `static`), per-surface hero emphasis.
 - [static-linking.md](static-linking.md) — `pkgsStatic` gotchas independent of OS (propagation, `.pc`/`Requires.private`, aggressive DCE, eval blockers, musl probes).
-- [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
+- [runtime-data.md](runtime-data.md) — runtime data is embedded by default (vim/gvim ZIP+VFS, file compiled-in blob); the `package_data` companion archive is the opt-in fallback.
 - [embedded-metadata.md](embedded-metadata.md) — the unified `unpin/` ZIP container embedded in every binary (aliases + man), byte-scan locator, `withAliases`/`withMan` glue, alias security model.
 - [embedded-man.md](embedded-man.md) — `unpin man` dispatches to the `unpins/unpin-man` package (patched mandoc), which reads embedded roff via the stable `unpin bundle list|dump` interface; unpin itself renders nothing.
 - [helper-verbs.md](helper-verbs.md) — the durable model for `unpin man`/`readme`/`search`/… : helpers are `unpins/unpin-<verb>` packages reached only via `unpin <verb>`, never on `PATH`; dispatch precedence and the catalog naming reservation that keep the verb name from colliding with the OS or the catalog.
