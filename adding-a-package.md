@@ -40,7 +40,7 @@ nix flake update                                     # bump to current nix-lib /
 
 Start from [`templates/README.md`](templates/README.md) — fill the `<…>` slots and delete the guidance comments. Filled references: `tree/README.md` (single command), `flac/README.md` (multicall). What the template encodes:
 
-- Title + one-line description, CI badge (`![CI](https://github.com/unpins/<pkg>/actions/workflows/<pkg>.yml/badge.svg)`), platform badges (Linux/macOS, optionally Windows), one-line unpins blurb.
+- **Opening** — the package-README sentence from [messaging.md](messaging.md), adapted to keep the upstream link (and, if useful, a one-line description): `[<pkg>](<homepage>) as a single self-contained binary, built natively for <OSes>.` Name **only** the OSes we ship — the platform list must match the badges. Then CI badge (`![CI](https://github.com/unpins/<pkg>/actions/workflows/<pkg>.yml/badge.svg)`) + platform badges (Linux/macOS, optionally Windows), then the catalog/install line: `Part of the [unpins](https://unpins.org) catalog; install it with [\`unpin\`](https://github.com/unpins/unpin): \`unpin install <pkg>\`.`
 - **`## Usage`** leads with the run form, then install — both always take the **package** name `<pkg>`, never a command name (`unpin <X>` resolves the repo `unpins/<X>`):
   - `unpin <pkg> <args>` (run is the default verb, so it's omitted) runs it without installing;
   - `unpin install <pkg>` puts it on PATH.
@@ -83,23 +83,18 @@ To suppress the companion entirely (rare — only if `share/` exists but you don
 
 ## 8. Update the website
 
-In `website/gen-packages.py`:
-
-```python
-LICENSE = {
-    ...
-    "<pkg>": "<SPDX-id>",
-    ...
-}
-```
-
-Regenerate the table:
+Nothing per-package to hand-edit — `gen-packages.py` extracts version, SPDX
+license, description, and the per-OS columns from one `nix eval` per package
+(license via nix-lib's `meta.license` propagation; Windows from the
+`"windows-x86_64"` attr). Just regenerate the table:
 
 ```bash
 cd ../website && python3 gen-packages.py
 ```
 
-The script also picks up `windows = true` / `windowsCosmo = true` / `windowsBuild = ...` / `"windows-x86_64"` from the flake to fill the Windows column.
+License only needs attention when the artifact carries no `meta.license` (a
+custom `mkDerivation`) or a noisy multi-license list — set the `license` arg in
+your `mkStandaloneFlake` call (see `ffmpeg` / `python`), not in `gen-packages.py`.
 
 ## 9. First commit
 
@@ -142,6 +137,6 @@ Commit and push `website/packages.html` + `gen-packages.py` in the `website/` re
 - [ ] Native build: produces `statically linked` ELF on Linux, libSystem-only on macOS
 - [ ] Windows build: produces PE32+ with only system DLLs imported
 - [ ] Runtime-data lookup verified if the package has a `share/` subtree (see [runtime-data.md](runtime-data.md))
-- [ ] `gen-packages.py` LICENSE entry added; `packages.html` regenerated
+- [ ] `packages.html` regenerated (license auto-derived from `meta.license`; set the `license` arg only if it's missing or noisy)
 - [ ] Git repo initialized with `git init -b main`, first commit lands
 - [ ] GitHub repo created, description matches `flake.nix`, `git push -u origin main`
