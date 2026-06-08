@@ -30,7 +30,12 @@ zero-`unsafe`, near-zero-dependency invariant. Instead:
 
 Helper verbs in general (man today; changelog/readme conceivably later) are
 packages, not builtins. The only unpin-side surface is the `bundle` interface
-below.
+below. The durable cross-verb model — helpers as `unpins/unpin-<verb>` packages
+reached only via `unpin <verb>` and never placed on `PATH`, with the dispatch
+precedence and catalog naming reservation that keep `man` from colliding with the
+OS or the catalog — is specified in [helper-verbs.md](helper-verbs.md). The flow
+below still describes the current `unpins/man` (same-name) coincidence, which that
+model supersedes.
 
 ### Flow (man → unpin, not unpin → man)
 
