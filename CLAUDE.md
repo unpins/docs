@@ -48,7 +48,6 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [runtime-data.md](runtime-data.md) — packages with data files (vim, gvim, file pattern).
 - [embedded-metadata.md](embedded-metadata.md) — the unified `unpin/` ZIP container embedded in every binary (aliases + man), byte-scan locator, `withAliases`/`withMan` glue, alias security model.
 - [embedded-man.md](embedded-man.md) — `unpin man` dispatches to the `unpins/man` package (patched mandoc), which reads embedded roff via the stable `unpin bundle list|dump` interface; unpin itself renders nothing.
-- [helper-verbs.md](helper-verbs.md) — the durable model for `unpin man`/`readme`/`search`/… : helpers are `unpins/unpin-<verb>` packages reached only via `unpin <verb>`, never on `PATH`; dispatch precedence and the catalog naming reservation that keep the verb name from colliding with the OS or the catalog.
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
 - [multicall.md](multicall.md) — folding many upstream executables into one `argv[0]`-dispatching binary (`ld -r` and reuse-the-link-line recipes).
 - [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, mingw blockers (bash/coreutils ship via cosmo; git is a mingw WIP).
@@ -63,7 +62,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 AI-assisted commits carry the trailer:
 
 ```
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ```
 
 ## Source of authority
