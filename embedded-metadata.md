@@ -238,9 +238,20 @@ reports no embedded manual there (accepted: out-of-ecosystem builds).
 
 ### 5.2 Catalog packages (nix-lib)
 
-The `withAliases` and `withMan` steps, run in `postFixup` after strip, ensure the
-binary has a ZIP and add `unpin/*` to it. They compose order-free — each just
-adds its entries to the one ZIP, creating it if absent:
+`withUnpinEmbed pkgs { primary, aliases?/aliasesFromSymlinksIn?, man?,
+manRoot?, manFallback?, runtimeStage? }` is the ONE call that builds a
+package's embedded container: it stages every payload — the alias list, the
+mkmeta.py man tree, and an optional VFS runtime tree
+([runtime-data.md](runtime-data.md)) — into a single ZIP-root staging dir in
+`postFixup` (after strip) and packs the binary's one EOF ZIP once. When the
+call includes man, `mkStandaloneFlake` sees `passthru.unpinEmbedsMan` and
+skips its own man application, so that call really is the only embed step.
+
+`withAliases`, `withMan` and `withRuntimeData` remain as thin wrappers over it
+(most catalog packages only ever need the implicit `withMan` that
+`mkStandaloneFlake` applies). Composing several calls still works order-free —
+each repacks the accumulated superset of the one ZIP, creating it if absent —
+it just costs one repack per call. The payloads:
 
 - Aliases: write `unpin/aliases` (one name per line) when the package declares
   them (explicit list or auto-collected multi-call applet symlinks, same

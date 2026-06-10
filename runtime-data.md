@@ -57,10 +57,14 @@ build:
    --redefine-sym` + relink, and on Windows `mch_open` / `mch_fopen` (real
    wide-char wrapper functions) get a virtual-path dispatch patched in at
    entry.
-2. nix-lib's `withRuntimeData` stages the `share/vim/vim<NN>` tree CONTENTS as
-   the ZIP root in `postFixup` (after strip) and the shared embed accumulator
-   repacks the binary's one ZIP — runtime entries as zstd method-93 against
-   the shared `.unpin/zdict` dictionary, smaller than the old deflate blob.
+2. ONE `withUnpinEmbed` call (nix-lib) builds the whole embedded container in
+   `postFixup` (after strip): `runtimeStage` stages the `share/vim/vim<NN>`
+   tree CONTENTS as the ZIP root, `aliases = [ "xxd" ]` adds `unpin/aliases`,
+   and `man = true` (native) / `manRoot` (windows) adds `unpin/man/*` — a
+   single pack writes the binary's one ZIP, runtime entries as zstd method-93
+   against the shared `.unpin/zdict` dictionary, smaller than the old deflate
+   blob. (`withRuntimeData` still exists as a thin wrapper for a
+   runtime-tree-only call.)
 3. `postInstall` removes the on-disk `share/vim/vim*` — the tree now lives only
    in the binary.
 
