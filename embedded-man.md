@@ -145,10 +145,12 @@ box can't run the host's binaries can't probe. `meta.broken` is forced false, an
 
 The roff is still embedded into every package by `withMan` / `embedMan`
 (default-on) at build time, exactly as [embedded-metadata.md](embedded-metadata.md)
-§5 describes. `unpin` also self-embeds its own hand-authored `unpin.1` via
-`build.rs` (a tiny stored ZIP with one `unpin/man/unpin.1` entry), so
-`unpin man unpin` works — the `unpin-man` package reads it back out of the
-`unpin` binary through `unpin bundle`.
+§5 describes. `unpin`'s own hand-authored `unpin.1` goes through the same
+pipeline: its flake passes the page as a `withMan` `manRoot`, so the nix build
+appends the standard `unpin/man/unpin.1` overlay and `unpin man unpin` works —
+the `unpin-man` package reads it back out of the `unpin` binary through
+`unpin bundle`. (A plain `cargo install` build has no overlay, hence no
+embedded manual.)
 
 See [runtime-data.md](runtime-data.md) for the broader picture of packages
 embedding what they used to ship as companion files.

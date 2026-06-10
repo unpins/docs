@@ -82,12 +82,13 @@ binary size, transient (the binary was just downloaded or is already installed).
 
 ### 2.1 Self-scan is not special
 
-unpin embeds its **own** `meta` ZIP (its `unpin.1`, via `build.rs` +
-`include_bytes!`). When `unpin man` scans `unpin` itself, the reader's own
-constants in `.rodata` are **not** valid EOCDs (no `PK\x05\x06` followed by a
-consistent central directory), so the §2.3 validation rejects them with no
-special-casing. This is cleaner than the old sentinel scan, which needed an
-explicit "skip the reader's own marker constant" rule.
+unpin carries its **own** metadata overlay (its `unpin.1`), embedded by its nix
+build through the same `withMan` pipeline as every catalog package (§5.1). When
+`unpin man` scans `unpin` itself, the reader's own constants in `.rodata` are
+**not** valid EOCDs (no `PK\x05\x06` followed by a consistent central
+directory), so the §2.3 validation rejects them with no special-casing. This is
+cleaner than the old sentinel scan, which needed an explicit "skip the reader's
+own marker constant" rule.
 
 ---
 
@@ -221,13 +222,15 @@ not authenticity — the release pipeline publishes `.sha256` sidecars for that.
 
 ## 5. Producer side
 
-### 5.1 unpin itself (`build.rs`)
+### 5.1 unpin itself
 
-unpin's `unpin.1` is hand-authored, so `build.rs` builds a tiny **stored** ZIP
-with one entry `unpin/man/unpin.1` and `include_bytes!`-plants it (`#[used]`, so
-it survives LTO + strip). No compression (the page is small), no Python — the
-build stays dependency-free. The reader then finds it via §2 like any other
-binary's ZIP.
+unpin's `unpin.1` is hand-authored, but it ships through the **same** `withMan`
+overlay as every catalog package: unpin's flake wraps the roff in a one-page
+`share/man` tree and passes it as `manRoot`, so the nix build appends the
+standard `unpin/man/unpin.1` overlay after strip. There is no `build.rs` /
+`include_bytes!` special path anymore — one producer, one format. The trade-off:
+a plain `cargo install unpin` build carries no overlay, so `unpin man unpin`
+reports no embedded manual there (accepted: out-of-ecosystem builds).
 
 ### 5.2 Catalog packages (nix-lib)
 
