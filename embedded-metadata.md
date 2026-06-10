@@ -42,9 +42,13 @@ it in whichever place is natural and signing-safe for the target (§5):
   end-of-central-directory and break its `/zip/` reader).
 
 A binary may legitimately contain **other** ZIPs (a cosmo runtime ZIP, a tool's
-own resource ZIP, a VFS runtime ZIP in a section). That is fine: those carry no
-`unpin/` entries, so they contribute nothing. The `unpin/` namespace is what marks
-data as ours, not the container's position.
+own resource ZIP, a not-yet-migrated VFS runtime blob in a section). That is
+fine: those carry no `unpin/` entries, so they contribute nothing. The `unpin/`
+namespace is what marks data as ours, not the container's position. The reverse
+also holds inside the ONE shared ZIP: a package's VFS runtime tree
+([runtime-data.md](runtime-data.md) pattern 2) lives at the ZIP root next to
+`unpin/*`, unpin's reader ignores it, and the VFS hides `unpin/*` from the
+program.
 
 ---
 

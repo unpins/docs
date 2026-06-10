@@ -31,38 +31,50 @@ The blob is embedded **raw** (not gzip): the release asset is already zstd-19
 compressed, and zstd over a pre-gzipped blob recovers almost nothing (`file`'s db
 is ~8.5 MB either way).
 
-## Pattern 2 — embedded ZIP + in-tool VFS (a tree opened by path)
+## Pattern 2 — runtime tree in the embedded ZIP + in-tool VFS (a tree opened by path)
 
-When the program opens many files by path at runtime (a whole runtime tree), pack
-the tree into a ZIP, link it into the binary as a section, and add a tiny virtual
+When the program opens many files by path at runtime (a whole runtime tree),
+ship the tree inside the binary's **single embedded ZIP** — the same
+container that carries `unpin/aliases` and `unpin/man/*`
+([embedded-metadata.md](embedded-metadata.md)) — and add a tiny virtual
 filesystem that intercepts the program's own file calls for a marker path and
-serves them from the in-memory ZIP.
+serves them from that ZIP. The VFS core is shared
+(github:unpins/unpin-vfs, vendored per package) and runs in **self-EOF mode**
+(`-DUNPIN_VFS_SELF`): `unpin_vfs_init()` locates the running executable
+(`/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`), opens it
+read-only and reads the ZIP straight off its EOF — the absolute, file-adjusted
+offsets the embed writes mean the whole file parses as one archive. No
+`.incbin`/`blob.S` section, no relink when only data changes; the `unpin/` and
+`.unpin/` namespaces are hidden from VFS lookups and listings.
 
-`vim` / `gvim` are the worked example (`vim/flake.nix`; VFS sources
-`vim/unpins_vfs.c`, `unpins_init.c`, `miniz.c`, `unpins_runtime_data.S`). The
-build (`injectVfs`):
+`vim` is the worked example (`vim/flake.nix`; vendored VFS sources `vfs.c`,
+`vfs.h`, `miniz.c`, `unpin_zstd.c` + `zstddeclib.c`, glue `unpins_init.c`). The
+build:
 
-1. Packs `share/vim/vim<NN>` to a deflate ZIP (`zip -9`); the major-version dir
-   name is read out of the tree, not tracked by hand.
-2. Stages it at `src/unpins_runtime.zip` and links it into the binary as a
-   section via `.incbin` (`unpins_runtime_data.S`).
-3. Copies in a ~410-LOC C + miniz VFS layer. `unpins_init()` is injected right
-   after `mch_early_init()` in `main.c`, and a hooks include goes **inside**
-   `vim.h`'s `VIM__H` guard so vim's `mch_open` / `mch_fopen` route paths under
-   the VFS marker to the in-memory ZIP. On Windows those are real functions
-   (wide-char wrappers), so their bodies are patched to dispatch virtual paths at
-   entry instead of via macro.
-4. `postInstall` removes the on-disk `share/vim/vim*` — the tree now lives only
+1. `injectVfs` copies in the VFS core + glue. `unpins_init()` is injected right
+   after `mch_early_init()` in `main.c`; on Linux the libc file calls are
+   rerouted at link time (`ld --wrap`), on macOS by `llvm-objcopy
+   --redefine-sym` + relink, and on Windows `mch_open` / `mch_fopen` (real
+   wide-char wrapper functions) get a virtual-path dispatch patched in at
+   entry.
+2. nix-lib's `withRuntimeData` stages the `share/vim/vim<NN>` tree CONTENTS as
+   the ZIP root in `postFixup` (after strip) and the shared embed accumulator
+   repacks the binary's one ZIP — runtime entries as zstd method-93 against
+   the shared `.unpin/zdict` dictionary, smaller than the old deflate blob.
+3. `postInstall` removes the on-disk `share/vim/vim*` — the tree now lives only
    in the binary.
 
 The VFS sources live in the package repo (copy `vim/`'s as a starting point);
-miniz is built with `-DMINIZ_NO_*` so only the inflate path is linked.
+miniz is built with `-DMINIZ_NO_*` so only the inflate path is linked, plus
+`-DMINIZ_USE_ZSTD` with the vendored decompress-only `zstddeclib.c`.
 
-> Don't confuse this with the `unpin/*` metadata ZIP (aliases + man pages, see
-> [embedded-metadata.md](embedded-metadata.md)). That is unpin's own namespace,
-> located by a whole-file byte scan and read by the `unpin` CLI; a package's
-> runtime VFS ZIP is a separate blob in its own section, read by the program
-> itself, and carries no `unpin/` entries.
+> The runtime tree and the `unpin/*` metadata (aliases + man pages, see
+> [embedded-metadata.md](embedded-metadata.md)) share the binary's ONE
+> embedded ZIP but never mix: `unpin/*` and `.unpin/*` are unpin's namespaces,
+> read by the `unpin` CLI and hidden from the package's own VFS; everything
+> else is the runtime tree, served by the VFS and ignored by unpin's reader.
+> (gvim/perl/biber still embed their tree the old way — a private blob linked
+> in as a section via `.incbin` — until they migrate to self-EOF.)
 
 ## Fallback — companion archive (`package_data`, opt-in)
 
