@@ -85,6 +85,22 @@ shared core matches.
   Never say "one program per repo"; the per-repo invariant is one flake, one
   binary.
 
+### The architecture sentence
+
+When a surface has room to detail platforms, use this sentence (or a tight
+paraphrase of it):
+
+> Linux builds cover six architectures — x86_64, aarch64, armv7l, i686,
+> ppc64le, and riscv64; macOS builds cover Intel and Apple Silicon; Windows
+> is x86_64.
+
+The OS list ("Linux, macOS, and Windows") always leads; the architecture list
+is the second beat, used where space allows — feature card, install notes,
+README install section, packages-page footnote. Prebuilt binaries for
+ppc64le/riscv64 are rare anywhere else, so this sentence is a differentiator,
+not boilerplate. For macOS say "Intel and Apple Silicon" (user words), not
+"x86_64/aarch64-darwin"; for Linux use the plain arch names.
+
 **Names — the resolved "bare name" collision.** The term "bare name" was used for
 two different things; retire it. Use instead:
 
