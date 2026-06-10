@@ -1,6 +1,6 @@
 # Multicall binaries
 
-When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shadow`, `busybox`, `coreutils`, `srt`, `librist`), the one-pkg-one-bin rule means we fold them into a **single multicall binary**: one file that dispatches on `argv[0]` (the applet name) with a `<pkg> <applet> [args]` fallback. `lib.withAliases` then embeds the applet names as the `unpin/aliases` entry in the binary's embedded `unpin/` ZIP (see [embedded-metadata.md](embedded-metadata.md)) so `unpin install` can recreate the `argv[0]` shims (symlinks on Linux/macOS, `.cmd`/hardlinks on Windows).
+When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shadow`, `busybox`, `coreutils`, `srt`, `librist`), the one-pkg-one-bin rule means we fold them into a **single multicall binary**: one file that dispatches on `argv[0]` (the applet name) with a `<pkg> <applet> [args]` fallback. `lib.withAliases` then embeds the applet names as the `unpin/aliases` entry in the binary's embedded `unpin/` ZIP (see [embedded-metadata.md](embedded-metadata.md)) so `unpin install` can recreate the `argv[0]` shims (symlinks on Linux/macOS, NTFS hardlinks on Windows).
 
 This is distinct from the *whole-program-as-a-library* embed (e.g. dash inside git) in [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library) — there the goal is to hide every symbol but one; here every program keeps its own entry point and the programs are peers.
 

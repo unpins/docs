@@ -79,7 +79,8 @@ directory:
 ```
 
 `~/.local/bin/<pkg>` symlinks to `bin/<pkg>`; on Windows the layout collapses into
-`%LOCALAPPDATA%\unpin\packages\<owner>\<pkg>\<tag>\` plus a `.cmd` wrapper. On
+`%LOCALAPPDATA%\unpin\packages\<owner>\<pkg>\<tag>\` plus a `<pkg>.exe` NTFS
+hardlink in the PATH dir. On
 disk the binary must then find that data **relative to itself**, not via the
 `/nix/store/...` path baked at build time.
 
