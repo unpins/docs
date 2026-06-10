@@ -6,13 +6,15 @@ is a **plain ZIP** holding entries under a reserved `unpin/` namespace; unpin
 finds it by the ZIP's own structure and reads `unpin/*` out of it. This is the
 single, format-agnostic mechanism for everything unpin embeds in a binary.
 
-**Why a ZIP, not a hand-rolled container.** The producer is Python stdlib
-(`zipfile`) plus Nix/objcopy; the consumers are unpin (Rust `zip` crate, already
-linked) and — for packages that read their *own* runtime from an embedded ZIP —
-the in-tool VFS (miniz, see [runtime-data.md](runtime-data.md)). A ZIP gives the
-central directory (locator + index), per-entry CRC (integrity), and per-entry
-compression for free, with real tooling (`unzip -l <binary>`) for debugging. No
-invented framing.
+**Why a ZIP, not a hand-rolled container.** The producers are the `zip` CLI /
+Python `zipfile` (aliases, `deflate`) and the C `unpin-vfs-pack` (man, `zstd` —
+§3.4), plus Nix/objcopy; the consumers are unpin (a hand-rolled central-directory
+walk in `meta.rs`, decompressing with `flate2`/`ruzstd`, both already linked) and
+— for packages that read their *own* runtime from an embedded ZIP — the in-tool
+VFS (miniz, see [runtime-data.md](runtime-data.md)). A ZIP gives the central
+directory (locator + index), per-entry CRC (integrity), and per-entry compression
+for free, with real tooling (`unzip -l <binary>`) for listing. No invented
+framing.
 
 **No marker, no sentinel.** Earlier drafts wrapped the payload in a `0xff`
 sentinel. That is gone. The ZIP is located by its native end-of-central-
@@ -66,9 +68,12 @@ tail-ZIP).
    `0xFFFFFFFF` in `cd_size`/`cd_offset` means ZIP64 → unsupported (never
    produced), skip.
 4. The validated ZIP occupies `[zip_start, e + 22 + comment_len)`. Because
-   `zip_start` is computed from the EOCD, this slice is a clean, zero-prefix ZIP
-   — hand it to the `zip` crate (a `Cursor` over the slice) and read entries by
-   name.
+   `zip_start` is computed from the EOCD, this slice is a clean, zero-prefix ZIP.
+   The reader walks the central directory itself — each `PK\x01\x02` record, then
+   the `PK\x03\x04` local header it points at, to slice out that entry's raw
+   payload — rather than going through the `zip` crate. Parsing by hand is what
+   lets it decode ZIP method 93 (Zstandard, §3) with the pure-Rust `ruzstd` it
+   already links, so every cross target (mingw, i686/riscv64-musl) keeps building.
 5. A binary can yield **several** validated ZIPs. Collect `unpin/*` entries from
    all of them (§3). Non-`unpin/` entries are ignored.
 
@@ -89,8 +94,13 @@ explicit "skip the reader's own marker constant" rule.
 ## 3. Entry layout (`unpin/` namespace)
 
 All metadata lives under `unpin/`. Entries are plain ZIP members; compression is
-per-entry (`stored` or `deflate` — `deflate` is the only compressed method used,
-so miniz / `zipfile` / `flate2` all read it; no `zstd`).
+per-entry, one of three methods: `stored` (0), `deflate` (8), or `zstd`
+(Zstandard, ZIP method 93). Aliases are tiny and stay `deflate`; man pages are
+large and roff-redundant, so `withMan` packs them `zstd` — optionally against a
+shared dictionary (§3.4), the bigger size lever. The reader decompresses all
+three (`flate2` for deflate, `ruzstd` for zstd) and the in-tool VFS reads the
+same bytes via miniz built `-DMINIZ_USE_ZSTD`. The compression method is the one
+part of this format that is **not** silently forward-compatible — see §7.
 
 ### 3.1 Aliases — `unpin/aliases`
 
@@ -114,7 +124,7 @@ gated by a per-name confirmation at link time (see §4).
 
 ### 3.2 Man pages — `unpin/man/<name>.<section>[`…`]`
 
-roff source, one entry per page:
+roff source, one entry per page (`zstd`-compressed — see §3.4):
 
 - English (default): `unpin/man/<name>.<section>` — e.g. `unpin/man/unpin.1`,
   `unpin/man/fdisk.8`.
@@ -126,7 +136,11 @@ roff source, one entry per page:
   creator-system = unix) so it dedupes the shared target and resolves *within*
   the archive — there is no filesystem to `.so` into. The reader follows
   redirects with cycle detection, capped at depth 4; a cycle or dangling target
-  errors naming the broken redirect.
+  errors naming the broken redirect. **In a `zstd` man overlay this symlink form
+  is not used:** the zstd packer (miniz) stores no unix link mode, so `withMan`
+  resolves each `.so` redirect to its target's bytes at stage time — the page
+  ships as a full (well-compressing, dictionary-shared) copy, and the
+  symlink-following path above applies only to legacy `deflate` overlays.
 
 `<section>` is read as its leading digits (`1`, `8`, `3` from `3pm`). Lookup key
 is `(name, section, lang)`: prefer the requested language then fall back to `en`;
@@ -137,6 +151,28 @@ with no section requested, take the lowest-numbered section present.
 New kinds are new `unpin/` sub-prefixes (`unpin/completions/…`, `unpin/provenance`,
 …). An old reader ignores prefixes it doesn't know — the central directory makes
 every entry independently addressable, so forward-compat is automatic.
+
+### 3.4 Shared dictionary — `.unpin/zdict`
+
+A man overlay big enough to benefit (raw page bytes ≥ 1 MiB) is packed against a
+**shared Zstandard dictionary** trained over the page set (`zstd --train`), which
+exploits cross-page roff redundancy for a much larger win than per-entry zstd
+alone (perl: `deflate` 3.77 MiB → plain `zstd` ~3.4 MiB → `zstd`+dict 2.76 MiB).
+
+The dictionary ships as one reserved entry, **`.unpin/zdict`**, `stored`. The
+leading dot puts it *outside* the served `unpin/` namespace, so it is never
+returned as a payload entry — it exists only so the reader can decode the
+method-93 entries trained against it. The reader loads it once per overlay and
+reuses a single `ruzstd` decoder across that overlay's entries; overlays with and
+without a `.unpin/zdict` coexist in one binary, each decoded against its own dict
+or none.
+
+It is **size-gated and kept only if it pays.** The dict is ~110 KB `stored` —
+dead weight on a small man set — so `withMan` trains it only above the 1 MiB
+threshold and keeps the dict-packed overlay **only when it came out smaller** than
+the plain-`zstd` one. The dictionary can therefore never enlarge a package, and a
+too-small sample set simply falls back to plain `zstd`. A binary with a small man
+set (e.g. bzip2) carries `zstd` entries and **no** `.unpin/zdict`.
 
 ---
 
@@ -202,9 +238,11 @@ adds its entries to the one ZIP, creating it if absent:
 - Aliases: write `unpin/aliases` (one name per line) when the package declares
   them (explicit list or auto-collected multi-call applet symlinks, same
   collection + validation as today).
-- Man: collect `$out/share/man/man[0-9]/*` (gunzip `.gz`); a body that is only a
-  `.so <path>` becomes a symlink entry, otherwise a roff entry, `deflate`-
-  compressed. **Every** target — native, cross-linux, AND Windows/cosmo —
+- Man: collect `$out/share/man/man[0-9]/*` (gunzip `.gz`); `mkmeta.py` stages a
+  `.so <path>` body as a symlink and every other page as a roff file, then the
+  overlay is packed `zstd` by `unpin-vfs-pack` (§3.4) — with the `.so` symlinks
+  resolved to their target's bytes first, since that packer stores no unix link
+  mode. **Every** target — native, cross-linux, AND Windows/cosmo —
   harvests man from its OWN `$out/share/man`: most cross builds install their
   man like any other (pre-generated roff in the tarball, or generators that run
   on the build host with no target execution), so they get the same pages
@@ -214,10 +252,14 @@ adds its entries to the one ZIP, creating it if absent:
   when the cross build ships no man of its own — e.g. zstd, whose cmake gates
   the man install on UNIX (false for mingw). See `withMan` in `nix-lib`.
 - Placement per §1: ELF/PE add-section or trailing; Mach-O trailing past the
-  signature; cosmo add entries to the existing tail-ZIP. Produce with `zipfile`
-  (stdlib): `deflate` + per-entry CRC are built in; for symlink entries set
-  `create_system = 3` (unix) and `external_attr = (0o120777 << 16)`. **No EOCD
-  comment / marker is written.**
+  signature; cosmo adds entries to the existing tail-ZIP. The aliases overlay (and
+  the cosmo tail-ZIP) are written with the `zip` CLI / `zipfile`: `deflate` +
+  per-entry CRC are built in; for symlink entries set `create_system = 3` (unix)
+  and `external_attr = (0o120777 << 16)`. The man overlay is a separate trailing
+  ZIP written by `unpin-vfs-pack` (`zstd` + optional `.unpin/zdict`, §3.4) — except
+  on cosmo, whose man pages fold into the tail-ZIP as `deflate` instead (its loader
+  reads that ZIP and a `zstd` overlay can't merge into it). **No EOCD comment /
+  marker is written by either.**
 
 Because aliases are catalog-only and we build these binaries, there is exactly
 one `unpin/aliases` and the §4 guard never fires.
@@ -236,16 +278,28 @@ one `unpin/aliases` and the §4 guard never fires.
 - Caps: max entries, per-entry size, total `unpin/*` bytes, and a max file size to
   scan — so a crafted ZIP can't drive unbounded allocation.
 
-Dependencies: the `zip` crate (already linked, `deflate-flate2` feature) for
-reading; no ELF/PE/Mach-O parser. Rendering man pages is **not** unpin's job —
-the `man` package (patched mandoc) pulls the roff back out via
-`unpin bundle dump` and renders it. See [embedded-man.md](embedded-man.md).
+Dependencies: nothing beyond what unpin already links — a hand-rolled
+central-directory parse plus `flate2` (deflate + CRC-32) and `ruzstd` (zstd,
+method 93, pure-Rust). The metadata reader does **not** go through the `zip` crate
+(that crate stays linked for release-asset archives, but reading method 93 through
+it would pull in a C zstd and break the musl/mingw crosses). No ELF/PE/Mach-O
+parser. Rendering man pages is **not** unpin's job — the `man` package (patched
+mandoc) pulls the roff back out via `unpin bundle dump` and renders it. See
+[embedded-man.md](embedded-man.md).
 
 ---
 
 ## 7. Limits & forward-compat
 
-- ZIP is the version boundary: new metadata kinds are new `unpin/` sub-prefixes;
-  unknown prefixes are ignored by older readers (no format-version byte needed).
-- Caps (reader-enforced): see §6. `deflate` only (no `zstd`) so the in-tool VFS
-  (miniz) and `zipfile`<3.14 both read the same bytes.
+- ZIP is the version boundary: new metadata *kinds* are new `unpin/` sub-prefixes,
+  ignored by older readers (no format-version byte needed). The **compression
+  method** is the exception — it is not auto-forward-compatible. Adding `zstd`
+  (method 93) for man pages required teaching the reader (`ruzstd`) and the
+  in-tool VFS (miniz `-DMINIZ_USE_ZSTD`) about it *first*; an unpin built before
+  that support cannot read a method-93 overlay (`unpin man <pkg>` would fail).
+  Rollout is therefore ordered: ship the decoding reader, let it propagate, then
+  flip `withMan` to emit `zstd`. (For ad-hoc debugging, `unzip -l` still lists
+  method-93 entries but can't extract them; use a zstd-aware tool.)
+- Caps (reader-enforced): see §6 — max entries, per-entry size, total `unpin/*`
+  bytes, and a max file size to scan, so a crafted ZIP can't drive unbounded
+  allocation.
