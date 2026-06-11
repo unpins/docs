@@ -77,8 +77,8 @@ miniz is built with `-DMINIZ_NO_*` so only the inflate path is linked, plus
 > embedded ZIP but never mix: `unpin/*` and `.unpin/*` are unpin's namespaces,
 > read by the `unpin` CLI and hidden from the package's own VFS; everything
 > else is the runtime tree, served by the VFS and ignored by unpin's reader.
-> (gvim/perl/biber still embed their tree the old way — a private blob linked
-> in as a section via `.incbin` — until they migrate to self-EOF.)
+> Every VFS package (vim, gvim, perl, biber) uses this self-EOF model; the
+> old `.incbin` blob-section variant is gone.
 
 ## Fallback — companion archive (`package_data`, opt-in)
 
