@@ -36,10 +36,13 @@ it in whichever place is natural and signing-safe for the target (§5):
   `llvm-objcopy --add-section` blob — either is found by the byte scan.
 - **Mach-O**: appended past the code signature (`LC_CODE_SIGNATURE`), outside the
   signed range, so signing stays valid (same as the old alias embed).
-- **cosmo APE**: the binary already has a tail-ZIP (cosmo bundles
-  `usr/share/zoneinfo/*` etc.); we **add** `unpin/*` entries to *that* ZIP rather
-  than appending a second one (a second trailing ZIP would shadow cosmo's
-  end-of-central-directory and break its `/zip/` reader).
+- **cosmo APE**: the binary already has a tail-ZIP (cosmo bundles its `zoneinfo`
+  tree, a stdlib, etc.); a second trailing ZIP would shadow cosmo's
+  end-of-central-directory and break its `/zip/` reader, so we **rewrite** that
+  tail-ZIP instead — `unpin-vfs-pack --carry` copies cosmo's existing entries
+  verbatim (deflate/store preserved so cosmo still reads them, the unused
+  `.symtab.amd64` dropped) and adds `unpin/` entries as zstd in the same
+  archive. One ZIP, one compression path for every target.
 
 A binary may legitimately contain **other** ZIPs (a cosmo runtime ZIP, a tool's
 own resource ZIP, a not-yet-migrated VFS runtime blob in a section). That is
@@ -270,14 +273,16 @@ it just costs one repack per call. The payloads:
   when the cross build ships no man of its own — e.g. zstd, whose cmake gates
   the man install on UNIX (false for mingw). See `withMan` in `nix-lib`.
 - Placement per §1: ELF/PE add-section or trailing; Mach-O trailing past the
-  signature; cosmo adds entries to the existing tail-ZIP. The aliases overlay (and
-  the cosmo tail-ZIP) are written with the `zip` CLI / `zipfile`: `deflate` +
-  per-entry CRC are built in; for symlink entries set `create_system = 3` (unix)
-  and `external_attr = (0o120777 << 16)`. The man overlay is a separate trailing
-  ZIP written by `unpin-vfs-pack` (`zstd` + optional `.unpin/zdict`, §3.4) — except
-  on cosmo, whose man pages fold into the tail-ZIP as `deflate` instead (its loader
-  reads that ZIP and a `zstd` overlay can't merge into it). **No EOCD comment /
-  marker is written by either.**
+  signature; cosmo **rewrites** its existing tail-ZIP. The whole container —
+  aliases + man (+ any runtime tree) — is the single ZIP `unpin-vfs-pack` writes
+  (§3.4): man and runtime entries as `zstd` (method 93) + an optional
+  `.unpin/zdict`, with `unpin/aliases` forced to plain `deflate` (`--deflate`) so
+  pre-`zstd` readers still decode it; `.so` man redirects are resolved to their
+  target's bytes first, since the packer stores no unix link mode. On cosmo the
+  same packer runs with `--carry`, which copies the loader's existing entries
+  verbatim (their `deflate`/`store` preserved) and adds ours as `zstd` in that
+  one archive — so cosmo man is now `zstd` like every other target, not a
+  separate `deflate` special case. **No EOCD comment / marker is written.**
 
 Because aliases are catalog-only and we build these binaries, there is exactly
 one `unpin/aliases` and the §4 guard never fires.
