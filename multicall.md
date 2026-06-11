@@ -1,15 +1,18 @@
 # Multicall binaries
 
-When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shadow`, `busybox`, `coreutils`, `srt`, `librist`), the one-pkg-one-bin rule means we fold them into a **single multicall binary**: one file that dispatches on `argv[0]` (the applet name) with a `<pkg> <applet> [args]` fallback. `lib.withAliases` then embeds the applet names as the `unpin/aliases` entry in the binary's embedded `unpin/` ZIP (see [embedded-metadata.md](embedded-metadata.md)) so `unpin install` can recreate the `argv[0]` shims (symlinks on Linux/macOS, NTFS hardlinks on Windows).
+When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shadow`, `busybox`, `coreutils`, `srt`, `librist`), the one-pkg-one-bin rule means we fold them into a **single multicall binary**. It dispatches two ways, the **unified contract** across the whole catalog:
+
+- **`argv[0]`** — invoked under an applet name (the canonical binary's basename is *not* that applet), it runs that applet. `lib.withAliases` embeds the applet names as the `unpin/aliases` entry in the binary's embedded `unpin/` ZIP (see [embedded-metadata.md](embedded-metadata.md)) so `unpin install` recreates these shims (symlinks on Linux/macOS, NTFS hardlinks on Windows). An alias is **locked to its argv[0] identity**: it ignores `--unpin-program` (below), so `ls --unpin-program=rm` runs `ls`, never `rm`.
+- **`--unpin-program=NAME`** as the *first argument* of the bare/canonical binary selects an applet explicitly (coreutils' `--coreutils-prog=` convention, generalized). This is the **only** bare-binary selector — there is no positional `<pkg> <applet>` form — so a canonical name that is itself an applet (`zip`, `bzip2`) is never ambiguous with one of its siblings (`zip --unpin-program=zipnote` unmistakably runs `zipnote`).
 
 This is distinct from the *whole-program-as-a-library* embed (e.g. dash inside git) in [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library) — there the goal is to hide every symbol but one; here every program keeps its own entry point and the programs are peers.
 
 ## The dispatcher front-end (`lib.multicallDispatcherC`)
 
-Both recipes end the same way: a tiny C `main` that dispatches on `argv[0]`. That
-front-end is **shared** — generate it with `lib.multicallDispatcherC`, don't
-hand-copy it (the per-package copies had drifted into a dozen subtly different
-dialects). It emits `multicall/dispatcher.c`:
+Both recipes end the same way: a tiny C `main` implementing the unified dispatch
+contract. That front-end is **shared** — generate it with
+`lib.multicallDispatcherC`, don't hand-copy it (the per-package copies had drifted
+into a dozen subtly different dialects). It emits `multicall/dispatcher.c`:
 
 ```nix
 # In the consumer's postBuild, AFTER writing multicall/apps.list:
@@ -30,27 +33,34 @@ per package):
   `objcopy --redefine-sym main=<sym>_main` rename **must** produce that same
   symbol (plain tools need no sanitiser; `srt`/`librist`/`heif` already rename to
   the sanitised form).
-- **Permissive dispatch**: a basename that isn't an applet (the canonical name, a
-  full path, or a renamed copy like CI's `smoke.exe`) falls through to `argv[1]`
-  as the applet, so renamed binaries and the smoke test keep working. (Older
-  packages keyed strictly on their own name and had to drop smoke — don't.)
-- **Bare/unknown** prints `usage` and exits 1, unless `defaultApplet` is passed:
-  `lib.multicallDispatcherC { name = "libwebp"; defaultApplet = "cwebp"; }` makes
-  a bare `libwebp -version` run `cwebp` (so `-version` smoke is clean). Used by
-  `libwebp` (cwebp), `flac` (flac), `vorbis-tools` (ogg123), `opus-tools`
-  (opusenc), and the Info-ZIP/bzip2 family below.
+- **Alias path** (`argv[0]`): a basename that *is* an applet and is *not* the
+  canonical name runs that applet directly. `--unpin-program` is not honored on
+  this path — an alias is locked to its argv[0] identity.
+- **Multitool path** (`--unpin-program=NAME`): the canonical name, a full path, or
+  a renamed copy like CI's `smoke.exe` selects an applet with
+  `--unpin-program=NAME` as the **first argument**. An unknown NAME errors on
+  stderr and exits 1. There is **no positional `<pkg> <applet>` form** — so
+  renamed binaries and the smoke test dispatch via the flag
+  (`smoke.exe --unpin-program=<applet> …`), and a canonical name that is itself an
+  applet is never ambiguous with a sibling.
+- **Bare/unknown** prints the program list and exits 0 (a non-list junk arg prints
+  a `--unpin-program=<name>` hint on stderr and exits 1), unless `defaultApplet` is
+  passed: `lib.multicallDispatcherC { name = "libwebp"; defaultApplet = "cwebp"; }`
+  makes a bare `libwebp -version` run `cwebp` (so `-version` smoke is clean). Used
+  by `libwebp` (cwebp), `flac` (flac), `vorbis-tools` (ogg123), `opus-tools`
+  (opusenc), and the Info-ZIP/bzip2 family below. A canonical name that is itself
+  an applet (`zip`, `bzip2`) runs that applet on a bare invocation.
 
 `defaultApplet` also covers the **"the package's own tool self-detects its
 argv[0]"** pattern (`bzip2`/`unzip`/`zip`): put only the real `*_main` programs
 in `apps.list`, and let the upstream tool handle its built-in argv[0] aliases via
 the fallback. E.g. `bzip2` → `apps.list = bzip2 bzip2recover`, `defaultApplet =
 "bzip2"`; the `bunzip2`/`bzcat` aliases are NOT applets, so they fall through to
-`bzip2_main` with the original argv and bzip2 self-detects them. Same for `unzip`
-(applets `unzip funzip`, alias `zipinfo` → unzip), `zip` (applets `zip zipnote
-zipcloak zipsplit`, `defaultApplet = "zip"`). Caveat: when the canonical name is
-itself an applet (`zip`), invoking it as `zip <applet>` runs the primary tool
-with `<applet>` as an argument — the applet shims and a *renamed* binary's
-`<name> <applet>` form still dispatch; only that literal meta-form changes.
+`bzip2_main` with the original argv (argv[0] = `bunzip2`) and bzip2 self-detects
+them. Same for `unzip` (applets `unzip funzip`, alias `zipinfo` → unzip), `zip`
+(applets `zip zipnote zipcloak zipsplit`, `defaultApplet = "zip"`). With the
+positional form gone, reaching a *sibling* applet of an applet-named canonical
+binary is unambiguous: `zip --unpin-program=zipnote` runs `zipnote`.
 
 Two parameters total: `name` and the optional `defaultApplet`. Everything that
 used to vary per package (list source, sanitiser, fallback style) is now fixed.
@@ -85,14 +95,15 @@ a TSV the caller writes first:
 multicall/applets.list:   <applet-name>\t<fn-base>      # C symbol is <fn-base>_main
 ```
 
-Aliases are extra rows pointing at the same `<fn-base>`. It is otherwise the same
-permissive, smoke-surviving dispatcher as `multicallDispatcherC`, plus it strips
-a libtool `lt-` argv[0] prefix and an unconditional `\\` dir separator (cosmo APE
-argv[0] can carry one and `_WIN32` isn't defined for cosmo). `defaultApplet` here
-is an `<fn-base>` (e.g. procps-ng's `src_ps_pscommand`, findutils' `find`), so a
-bare `--version` or a renamed binary routes to that tool. util-linux/shadow were
-strict (keyed on their own name); the shared generator unified them to permissive
-so the renamed-binary smoke works.
+Aliases are extra rows pointing at the same `<fn-base>`. It implements the same
+dispatch contract as `multicallDispatcherC` (alias path on `argv[0]`,
+`--unpin-program=NAME` selector on the canonical/renamed binary, no positional
+form), plus it strips a libtool `lt-` argv[0] prefix and an unconditional `\\` dir
+separator (cosmo APE argv[0] can carry one and `_WIN32` isn't defined for cosmo).
+`defaultApplet` here is an `<fn-base>` (e.g. procps-ng's `src_ps_pscommand`,
+findutils' `find`), so a bare `--version` or a renamed binary routes to that tool.
+A renamed binary's smoke selects its applet with
+`smoke.exe --unpin-program=<applet>`.
 
 Two recipes, by how the upstream builds the programs.
 
@@ -143,7 +154,7 @@ Then:
    - **Heavy-C++ caveat (`heif`):** when the folded archives are heavy C++ (iostream, exceptions, multiple C++ codec libs), the runtime-static recipe above is necessary but not sufficient: on **mingw** the *combined* link trips a binutils 2.44 PE-COMDAT bug → drive it with lld (`-fuse-ld=lld`); on **darwin** the static libc++'s weak symbols get coalesced with the system libc++ at load → unexport the whole libc++/libc++abi surface (`-Wl,-unexported_symbols_list`), or it crashes at runtime on macOS 15 while `otool -L` still looks clean. Both detailed in [platforms/mingw.md](platforms/mingw.md) / [platforms/darwin.md](platforms/darwin.md), auto-memory `project_unpins_heif_wip`.
 8. **Splice the sibling apps' role-specific OBJECT-lib members the template's link line omits.** When the template app's link doesn't pull an OBJECT lib another app needs (`aomenc`'s link lacks the `aom_decoder_app_util` objects `aomdec` needs), find and splice them: `find . -path "*<objlib>.dir/*.$oext"`. Make spliced objects absolute if the link runs from a build subdir (the `link.txt` paths are relative to it — e.g. libjxl builds tools under `tools/`).
 
-The dispatcher is a tiny C file: `basename(argv[0])` (with `.exe` stripped and `\\` handled on Windows) → the matching `<app>_main`, plus a `<pkg> <applet> [args]` form so the bare binary stays callable.
+The dispatcher is a tiny C file implementing the unified contract: `basename(argv[0])` (with `.exe` stripped and `\\` handled on Windows) → the matching `<app>_main` on the alias path, plus a `<pkg> --unpin-program=<applet> [args]` selector so the bare binary stays callable (no positional form).
 
 Reference: `unpins/srt/multicall.nix` (CMake/C++), `unpins/librist/multicall.nix` (meson/C), `unpins/avif` + `unpins/jxl` + `unpins/aom` (CMake image/video codec CLIs — `aom` adds the app-provided-hook localize and OBJECT-lib splice; `jxl` the subdir-build link.txt and mingw `std::thread` fold), `unpins/heif` (heaviest C++ chain — mingw lld for the combined link + darwin libc++ symbol unexport). All invoked as `import ./multicall.nix { lib = pkgs.lib // unpins-lib.lib; } { ... }` from the consumer flake.
 
