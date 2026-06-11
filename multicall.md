@@ -77,10 +77,12 @@ the only genuine divergences the generator does not model:
   "one global + localize the rest", which would show the template's banner).
 
 Reference: `unpins/{aom,avif,jxl,heif,srt,librist,rtmpdump,libwebp,flac,
-vorbis-tools,opus-tools,jpeg-tools,bzip2,unzip,zip}` all call it; `unpins/openjpeg`
-+ `unpins/libvpx` are the exceptions (plus `unpins/xmllint`, whose tools export
-`xmllintMain`/`xmlcatalog_main` rather than `<applet>_main` and use a committed
-`dispatcher.c`).
+vorbis-tools,opus-tools,jpeg-tools,bzip2,unzip,zip,xmllint}` all call it
+(`xmllint` exports `xmllintMain` with a wider signature, so a tiny
+`xmllint_shim.c` provides the `xmllint_main` the generator expects — the
+dispatch logic is still the shared generator's); `unpins/openjpeg` +
+`unpins/libvpx` are the two exceptions that keep a hand-written dispatcher
+(openjpeg's bare-version-banner exit 0, libvpx's per-tool `usage_exit` hook).
 
 ### Recipe-A variant — `lib.multicallTableDispatcherC`
 
