@@ -3,8 +3,8 @@
 unpin's command surface is **three** categories, and conflating them is what
 made `unpin man` collide with the system `man`:
 
-1. **Builtins** — `install`, `uninstall`, `run`, `info`, `list`, `bundle`. Logic
-   lives in the `unpin` crate.
+1. **Builtins** — `install`, `uninstall`, `run`, `info`, `list`. Logic lives in
+   the `unpin` crate.
 2. **Helper verbs** — `man`, `readme`, and later `changelog`, `search`,
    `license`. These *operate on* the catalog or on a package's embedded data
    (`unpin/*`, see [embedded-metadata.md](embedded-metadata.md)). A verb is
@@ -142,9 +142,13 @@ is heavy and pager-independent:
   pager coupling, so it's the natural **package** case: `unpins/unpin-search`,
   reached by the dispatch rules above and never on `PATH`.
 
-A package verb reads embedded data through the **stable** `unpin bundle
-list|dump` interface ([embedded-man.md](embedded-man.md)); a builtin reads it
-in-process. Either way unpin's core stays small as the family grows.
+The two shapes split by *what data the verb reads*. A **builtin** reads a
+binary's embedded `unpin/*` in-process ([embedded-man.md](embedded-man.md)) —
+that in-process access is exactly why man/readme are builtins, not packages. A
+**package** verb operates on something external to any one binary (the catalog
+index, a remote API), so it needs no access to embedded bundles — which is why
+there is no longer a CLI exposing them across a process boundary. Either way
+unpin's core stays small as the family grows.
 
 ## Status
 

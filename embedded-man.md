@@ -55,50 +55,42 @@ mandoc_sys::render(roff, width) → ANSI, paged by src/render/ (reflows on resiz
 ```
 
 The hard part — scan for the ZIP's EOCD, validate it, slice it out of the binary,
-decode the entry — is unpin's tested Rust (`meta.rs` + `bundle.rs`), now called
-directly instead of over `unpin bundle`.
+decode the entry — is unpin's tested Rust (`meta.rs` + `bundle.rs`), called
+directly in-process. (The old `unpins/unpin-man` *package* shelled out to read
+the bundle; the builtin links the same Rust and skips the IPC.)
 
-## The `unpin bundle` interface — the contract
+## Reading the bundle in-process
 
-`unpin bundle <op>` is the **stable, versioned** interface a helper-verb
-*package* depends on (it is *not* a hidden command) to read a binary's embedded
-`unpin/*` entries without linking unpin. The builtin `man`/`readme` read those
-entries in-process instead, so this interface now serves future, independent
-verb-packages rather than them. Two ops, both fully in-memory (no temp files):
+`man` and `readme` read a binary's `unpin/*` entries directly via
+`bundle::read_bundle` (`unpin/src/bundle.rs`) over `meta.rs`: locate the binary
+carrying the package's bundle (`install::installed_binaries`; `unpin` itself
+resolves to `current_exe`), scan for the ZIP's EOCD, validate it, decode the
+entry. No subprocess, no temp files.
 
-- **`unpin bundle list <pkg>`** — one line per entry: `path<TAB>size`, or
-  `path<TAB>-> target` for a `.so` symlink entry. The line format is a stable
-  contract, pinned by a test (`entry_line`).
-- **`unpin bundle dump <pkg> <entry>`** — streams that one entry's exact bytes to
-  stdout; prints nothing (and exits 0) if the entry — or the whole bundle — is
-  absent.
+**Absence is not an error.** A missing entry, or a binary with no bundle at all,
+yields nothing and the verb falls through — `man` reports "no page," `readme`
+fetches the repo README. `install::is_installed` lets the verbs tell "package not
+installed" apart from "installed but no embedded page," so they can offer a
+tailored `unpin install …` hint.
 
-`<pkg>` is resolved via `install::installed_binaries` (`unpin` itself resolves to
-`current_exe`); the first installed binary carrying a bundle is read.
+Reading the bundle is **not** a security boundary — the alias trust gate lives in
+`install/linker.rs`, gated on `owner == unpins` (see
+[embedded-metadata.md](embedded-metadata.md) §4). The builtin `man` reads any
+binary's `unpin/man/*`, foreign packages included; worst case is wrong
+documentation, never a hijacked link.
 
-**Family rule: absence is not an error.** A missing entry, or a binary with no
-bundle at all, exits 0 with empty output. Only a *real* failure exits non-zero:
-package not installed, binary unreadable, bundle corrupt. Of those, **package not
-installed has its own exit code — `4` (`bundle::EXIT_NOT_INSTALLED`)** — distinct
-from the generic `1`, so a consumer can tell it apart from a broken read without
-parsing stderr text; this is part of the stable contract, for an independent
-verb-package to offer a `run unpin install …` hint. (The builtin `man`/`readme`
-read the bundle in-process and own this distinction directly, so they don't
-depend on this exit code.) `bundle` is **not** a
-security boundary — the alias trust gate lives in `install/linker.rs`, gated on
-`owner == unpins` (see [embedded-metadata.md](embedded-metadata.md) §4). The
-builtin `man` reads any binary's `unpin/man/*`, foreign packages included; worst
-case is wrong documentation, never a hijacked link.
-
-`extract` and `info` ops were considered and **cut** (YAGNI). A verb-package
-needs only `list` (to pick section/language and discover `.so` targets) + `dump`
-(to stream one entry's bytes). Neither op writes a file, so there is no
-untrusted-name materialization and no path-traversal sanitization to do.
+> There was once a **stable `unpin bundle list|dump` subcommand** — a CLI a
+> separate verb-*package* could shell to in order to read a binary's `unpin/*`
+> entries without linking unpin. With `man` and `readme` folded back in as
+> builtins (the only consumers that read a binary's embedded data), it had no
+> users left and was removed (2026-06-11). A future verb-package like `search`
+> operates on the *catalog*, not on a binary's bundle, so it needs no such
+> interface.
 
 ### `.so` redirects
 
 A whole-page `.so` (`vigr.8` → `.so man8/vipw.8`) is a ZIP **symlink** entry
-(`bundle list` reports it as `-> target`); the builtin `man` follows it in-process
+(stored as `-> target`); the builtin `man` follows it in-process
 (`render/man.rs`), with cycle detection capped at depth 4. An **inline**
 `.so` *inside* a roff body is not resolved — there is no on-disk man tree for
 mandoc to source from, so it only warns. Irrelevant in practice: catalog man is

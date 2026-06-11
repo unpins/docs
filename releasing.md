@@ -76,7 +76,7 @@ grep -qa 'unpin/man/' result/bin/<pkg> \
   && echo "man embedded" || echo "NO embedded man"
 ```
 
-(For an *installed* package you can instead use the stable interface: `unpin bundle list <pkg> | grep '^unpin/man/'`.)
+(For an *installed* package you can run `unpin man <pkg>` and confirm a page renders.)
 
 Check **per platform** — the ZIP is built independently on each (native objcopy add-section, Mach-O tail-append, Windows/cosmo tail-ZIP), and the man is sourced differently per target. Common silent-skip causes to rule out:
 

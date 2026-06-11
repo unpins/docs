@@ -296,9 +296,9 @@ one `unpin/aliases` and the §4 guard never fires.
   dedup guard (§4). `Ok(None)` = no `unpin/*` anywhere.
 - `Meta::aliases() -> Vec<String>` — parse `unpin/aliases` (dedup, skip blank/`#`).
 - `Meta::entries_under(prefix)` / `entry(path)` — raw access. The builtin
-  `man`/`readme` verbs (`unpin/src/render/`) read these in-process; the stable
-  `unpin bundle list|dump` subcommand (`unpin/src/bundle.rs`) is built on them for
-  independent verb-packages; see [embedded-man.md](embedded-man.md).
+  `man`/`readme` verbs (`unpin/src/render/`) read these in-process via
+  `bundle::read_bundle` (`unpin/src/bundle.rs`); see
+  [embedded-man.md](embedded-man.md).
 - Caps: max entries, per-entry size, total `unpin/*` bytes, and a max file size to
   scan — so a crafted ZIP can't drive unbounded allocation.
 
