@@ -65,24 +65,26 @@ binary is unambiguous: `zip --unpin-program=zipnote` runs `zipnote`.
 Two parameters total: `name` and the optional `defaultApplet`. Everything that
 used to vary per package (list source, sanitiser, fallback style) is now fixed.
 
-**Two documented exceptions** that intentionally keep a hand-written dispatcher —
-the only genuine divergences the generator does not model:
+**One documented exception** that intentionally keeps a hand-written dispatcher —
+the only genuine divergence the generator does not model:
 
-- `openjpeg`: a bare invocation prints a version banner and exits **0**. Every
-  `opj_*` tool exits 1 even on `-h`, so no `defaultApplet` gives a clean smoke;
-  the banner is the smoke target.
 - `libvpx`: `vpxenc`/`vpxdec`'s shared `tools_common.c` calls `usage_exit()` by
   name; the dispatcher carries a per-tool function-pointer trampoline so each
   tool keeps its **own** usage banner (more precise than the aom-style
   "one global + localize the rest", which would show the template's banner).
 
 Reference: `unpins/{aom,avif,jxl,heif,srt,librist,rtmpdump,libwebp,flac,
-vorbis-tools,opus-tools,jpeg-tools,bzip2,unzip,zip,xmllint}` all call it
-(`xmllint` exports `xmllintMain` with a wider signature, so a tiny
-`xmllint_shim.c` provides the `xmllint_main` the generator expects — the
-dispatch logic is still the shared generator's); `unpins/openjpeg` +
-`unpins/libvpx` are the two exceptions that keep a hand-written dispatcher
-(openjpeg's bare-version-banner exit 0, libvpx's per-tool `usage_exit` hook).
+vorbis-tools,opus-tools,jpeg-tools,bzip2,unzip,zip,xmllint,openjpeg}` all call
+it. `xmllint` exports `xmllintMain` with a wider signature, so a tiny
+`xmllint_shim.c` provides the `xmllint_main` the generator expects (the dispatch
+logic is still the shared generator's). `openjpeg` uses **no** `defaultApplet`,
+so a bare or `--help` invocation lists its tools and exits 0 — its smoke target,
+since every `opj_*` tool exits 1 even on `-h`; its per-package symbol
+harvest/redef/link is openjpeg-specific, but the dispatcher is the shared
+generator's. (`openjpeg` previously kept a hand-written banner-and-exit-0
+dispatcher; the rewritten generator's bare fallback now gives the same clean
+exit-0 listing, so it was folded in.) `unpins/libvpx` is the lone remaining
+exception that keeps a hand-written dispatcher (its per-tool `usage_exit` hook).
 
 ### Recipe-A variant — `lib.multicallTableDispatcherC`
 
