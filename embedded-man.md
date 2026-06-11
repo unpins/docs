@@ -13,55 +13,58 @@ There are two pieces, owned in different places:
    [embedded-metadata.md](embedded-metadata.md) — that is the authoritative
    spec. This document covers only the *man* side: how a page is fetched and
    rendered.
-2. **Rendering** — done by the **`unpin-man` package** (`unpins/unpin-man`, a
-   patched mandoc), **not** by unpin. unpin "knows nothing about man."
+2. **Rendering** — done **in-process** by the `mandoc-sys` crate (a vendored,
+   render-only subset of mandoc) that `unpin` links, paged by the shared
+   reflowing pager in `unpin/src/render/`. unpin carries no roff logic of its
+   own; the engine lives in the crate.
 
-## Architecture: man is a package, not a builtin
+## Architecture: man is a builtin (render-only mandoc, linked)
 
-`unpin man` was originally planned as a built-in, pure-Rust roff renderer (a
-pandoc/mandoc port living in `unpin/src/man/`). That was **scrapped**
-(2026-05-30). Re-implementing a roff engine in Rust is a large, perpetual
-maintenance burden, and FFI-linking mandoc's C into `unpin` would break unpin's
-zero-`unsafe`, near-zero-dependency invariant. Instead:
+`unpin man` has changed shape twice. It was first planned as a built-in,
+pure-Rust roff renderer (a pandoc/mandoc port in `unpin/src/man/`) — **scrapped**
+(2026-05-30), because reimplementing a roff engine in Rust is a perpetual
+maintenance burden. It then shipped as a **separate package**
+(`unpins/unpin-man`, a patched mandoc reached by verb dispatch) so the C renderer
+lived outside unpin. That worked, but a man pager has to **reflow on resize** —
+re-render the page at the new width — which means the renderer must run
+*in-process* alongside the pager, not behind a subprocess. So as of 2026-06-11 it
+is a **builtin** again:
 
-> **`unpin man` is a thin verb dispatch to the `unpins/unpin-man` package — a
-> patched mandoc.** The mature, canonical C renderer lives *in the package*, not
-> in `unpin`; unpin stays pure Rust.
+> **`unpin man` renders in-process via the `mandoc-sys` crate** — a vendored,
+> *render-only* subset of mandoc (roff bytes + width → ANSI), with no `main`, no
+> fork/exec, no `./configure`. unpin links it; there is no man package.
 
-Helper verbs in general (man today; changelog/readme conceivably later) are
-packages, not builtins, named `unpins/unpin-<verb>` and reached only via
-`unpin <verb>` — never placed on `PATH`. The dispatch precedence and the catalog
-naming reservation that keep `man` from colliding with the OS or the catalog are
-specified in [helper-verbs.md](helper-verbs.md); the only unpin-side surface is
-the `bundle` interface below.
+`man` and `readme` are the two **builtin doc verbs**, each a small `Reflow`
+renderer (man over `mandoc-sys`, readme over termimad) driven by one shared pager
+in `unpin/src/render/`. The generic verb-**package** model (a verb shipped as
+`unpins/unpin-<verb>`, reached by dispatch, never on `PATH`) still exists for a
+future heavy/independent verb — see [helper-verbs.md](helper-verbs.md) — but man
+and readme no longer use it.
 
-### Flow (man → unpin, not unpin → man)
+### Flow (all in-process)
 
 ```
 unpin man coreutils ls
-   │  default-run injection (parse_args) resolves the bare name `unpins/man` as a
-   │  program; on a genuine 404 it falls back to the `unpins/unpin-man` helper
-   │  package (helper-verbs.md) — fetched on demand, never linked onto PATH
+   │  `man` is a builtin subcommand (src/main.rs); no fetch, no subprocess
    ▼
-runs the unpin-man package (unpins/unpin-man, patched mandoc) with `coreutils ls`
-   │  `run` exports $UNPIN_SELF = unpin's own path (install/mod.rs)
+read coreutils' bundle in-process (meta.rs + bundle.rs):
+   enumerate unpin/man/*  → pick section/lang, follow .so redirects (depth ≤ 4)
+   read the chosen entry  → roff bytes
    ▼
-man front-end (unpin_man.c) shells back to unpin:
-   $UNPIN_SELF bundle list coreutils         → pick section/lang, find .so target
-   $UNPIN_SELF bundle dump coreutils <entry> → roff bytes on stdout
-   ▼
-piped into mandoc_main as stdin → renders man(7)/mdoc(7) to the terminal
+mandoc_sys::render(roff, width) → ANSI, paged by src/render/ (reflows on resize)
 ```
 
-The hard part — scan for the ZIP's EOCD, validate it, slice it out of the binary
-— stays in unpin's tested Rust (`meta.rs` + `bundle.rs`). The mandoc patch only
-swaps "read `/usr/share/man`" for "shell out to `unpin bundle`."
+The hard part — scan for the ZIP's EOCD, validate it, slice it out of the binary,
+decode the entry — is unpin's tested Rust (`meta.rs` + `bundle.rs`), now called
+directly instead of over `unpin bundle`.
 
 ## The `unpin bundle` interface — the contract
 
-`unpin bundle <op>` is the **stable, versioned** interface helper packages depend
-on (it is *not* a hidden command). It exposes a package's embedded `unpin/*`
-entries. Two ops, both fully in-memory (no temp files):
+`unpin bundle <op>` is the **stable, versioned** interface a helper-verb
+*package* depends on (it is *not* a hidden command) to read a binary's embedded
+`unpin/*` entries without linking unpin. The builtin `man`/`readme` read those
+entries in-process instead, so this interface now serves future, independent
+verb-packages rather than them. Two ops, both fully in-memory (no temp files):
 
 - **`unpin bundle list <pkg>`** — one line per entry: `path<TAB>size`, or
   `path<TAB>-> target` for a `.so` symlink entry. The line format is a stable
@@ -75,71 +78,58 @@ entries. Two ops, both fully in-memory (no temp files):
 
 **Family rule: absence is not an error.** A missing entry, or a binary with no
 bundle at all, exits 0 with empty output. Only a *real* failure exits non-zero:
-package not installed, binary unreadable, bundle corrupt. `bundle` is **not** a
+package not installed, binary unreadable, bundle corrupt. Of those, **package not
+installed has its own exit code — `4` (`bundle::EXIT_NOT_INSTALLED`)** — distinct
+from the generic `1`, so a consumer can tell it apart from a broken read without
+parsing stderr text; this is part of the stable contract, for an independent
+verb-package to offer a `run unpin install …` hint. (The builtin `man`/`readme`
+read the bundle in-process and own this distinction directly, so they don't
+depend on this exit code.) `bundle` is **not** a
 security boundary — the alias trust gate lives in `install/linker.rs`, gated on
-`owner == unpins` (see [embedded-metadata.md](embedded-metadata.md) §4). `man`
-reads any binary's `unpin/man/*`, foreign packages included; worst case is wrong
-documentation, never a hijacked link.
+`owner == unpins` (see [embedded-metadata.md](embedded-metadata.md) §4). The
+builtin `man` reads any binary's `unpin/man/*`, foreign packages included; worst
+case is wrong documentation, never a hijacked link.
 
-`extract` and `info` ops were considered and **cut** (YAGNI). The man package
+`extract` and `info` ops were considered and **cut** (YAGNI). A verb-package
 needs only `list` (to pick section/language and discover `.so` targets) + `dump`
-(to stream roff into `mandoc -man` via stdin). It never writes a file, so there
-is no untrusted-name materialization and no path-traversal sanitization to do.
+(to stream one entry's bytes). Neither op writes a file, so there is no
+untrusted-name materialization and no path-traversal sanitization to do.
 
 ### `.so` redirects
 
-A whole-page `.so` (`vigr.8` → `.so man8/vipw.8`) is a ZIP **symlink** entry;
-`bundle list` reports it as `-> target` and the `man` package resolves it itself
-(list → dump the target), with cycle detection capped at depth 4. An **inline**
+A whole-page `.so` (`vigr.8` → `.so man8/vipw.8`) is a ZIP **symlink** entry
+(`bundle list` reports it as `-> target`); the builtin `man` follows it in-process
+(`render/man.rs`), with cycle detection capped at depth 4. An **inline**
 `.so` *inside* a roff body is not resolved — there is no on-disk man tree for
 mandoc to source from, so it only warns. Irrelevant in practice: catalog man is
 generated (help2man / asciidoctor) and only ever emits whole-page redirects.
 
-## The `unpin-man` package (`unpins/unpin-man`)
+## The `mandoc-sys` crate (`unpins/mandoc-sys`)
 
-A patched mandoc 1.14.6 built through `mkStandaloneFlake`, released like any
-other catalog package (tag `v1.14.6-<pkgrel>`, `own_software = false`). It is a
-helper verb, so it ships under the `unpin-` prefix and is never linked onto PATH
-(see [helper-verbs.md](helper-verbs.md)). Three source pieces:
+The renderer is the `mandoc-sys` crate: a vendored, render-only subset of mandoc
+compiled by a `build.rs` and linked into `unpin`. One safe function —
+`render(roff, width) → String` (ANSI) — over a one-function C bridge
+(`bridge.c`) that replaces mandoc's `main`: input goes through `mparse_readmem`
+(no fd) and output is captured in memory on the `termp` buffer (no `FILE`, no
+temp files). It re-parses on every call; pages are small, and the pager only
+re-renders on resize, so a re-parse per render keeps the FFI to one function.
 
-- **`unpin-front-end.patch`** — renames mandoc's `main` → `mandoc_main`, and
-  relinks the Makefile `man:` target around `unpin_man.o` + `$(MAIN_OBJS)` +
-  `libmandoc.a` (instead of symlinking `mandoc` → `man`).
-- **`unpin_man.c`** — the new `main`: parses `man <pkg> [page]` (page defaults to
-  `<pkg>`), runs `bundle list`, ports the section/language pick + `.so` follow
-  (depth ≤ 4), then `fork`/`exec`s `bundle dump` with stdout→pipe→stdin and calls
-  `mandoc_main` with `argv[0] = "mandoc"` (which forces "read stdin as a file"
-  across all three toolchains). mandoc auto-detects man vs mdoc.
-- **`flake.nix` / `cosmo.nix`** — the build. `buildFlags = ["man"]` (only the
-  `man` target — the `mandoc` target would fail to link without `main`),
-  `doCheck = false` (the regress suite rebuilds `mandoc`). mandoc's build target
-  is `man`; the install renames it to `bin/unpin-man` so the binary, the asset,
-  and the package name agree (action-build locates the primary at `bin/<name>`).
+Because it is **render-only** — no front-end, no fork/exec — it builds the same
+way `unpin` itself does, on every target:
 
-### Platform notes (mandoc's configure runs probes)
+- **No `./configure`.** mandoc normally *executes* probe programs to fill
+  `config.h`, impossible when cross-compiling. `build.rs` synthesises `config.h`
+  per target libc family (gnu / musl / darwin / mingw) instead, toggling which
+  `compat_*.c` shims compile in.
+- **No cosmo.** A native Windows `.exe` via **mingw** works, since there is no
+  fork/exec front-end to need cosmo's libc. (The old package needed cosmo only
+  for that front-end.)
+- **~270 KB.** The compiled render subset adds about that much to the `unpin`
+  binary on every platform — the accepted cost of in-process reflow.
 
-mandoc's `./configure` *executes* probe binaries, so a cross build whose build
-box can't run the host's binaries can't probe. `meta.broken` is forced false, and:
-
-- **Targets the build box can't execute** (ppc64le / riscv64 / armv7l): preset
-  `HAVE_*` in `configure.local`, harvested from a native musl probe, plus
-  `NEED_GNU_SOURCE=1` (musl hides `strcasestr`/`strndup` behind `_GNU_SOURCE`).
-  `HAVE_NANOSLEEP=1` + `O_DIRECTORY`/`PATH_MAX`/`ATTRIBUTE` must be pinned
-  explicitly: mandoc only writes `#define HAVE_X` for *absent* features (to emit
-  a compat shim), so a *present* feature leaves no trace to harvest and the cross
-  probe would default it to 0 → `FATAL`.
-- **Targets it can execute** (i686; x86_64-darwin under Rosetta on the aarch64
-  runner): real probes run, no preset. `needsPreset` is gated on
-  `hostPlatform.isLinux` so a darwin host never gets the Linux harvest (which
-  would pull in `<endian.h>`, absent on macOS).
-- **Windows via Cosmopolitan** (`cosmo.nix`): cosmo libc has `fork`/`exec`/`pipe`
-  (mingw's CRT does not), which the front-end needs. The APE executes on the
-  Linux build box, so configure runs real probes — no preset. zlib is kept
-  (uniform config); the only fix is adding `cosmoPkgs.zlib.static` to
-  `buildInputs`, because cosmo's zlib is split-output and `buildInputs` otherwise
-  resolves to `dev` (no `libz.a`; the archive lives in the `static` output). The
-  unpins pipeline strips the APE down to a Windows-only PE32+, so smoke-test it
-  on the Windows VM, not on Linux. See [platforms/cosmocc.md](platforms/cosmocc.md).
+The pager (`unpin/src/render/`) is shared with `readme` and is content-agnostic:
+it pages ANSI lines and, on resize, asks the renderer (a `Reflow` impl) for a
+fresh render at the new width.
 
 ## What unpin still embeds
 
@@ -148,9 +138,8 @@ The roff is still embedded into every package by `withMan` / `embedMan`
 §5 describes. `unpin`'s own hand-authored `unpin.1` goes through the same
 pipeline: its flake passes the page as a `withMan` `manRoot`, so the nix build
 appends the standard `unpin/man/unpin.1` overlay and `unpin man unpin` works —
-the `unpin-man` package reads it back out of the `unpin` binary through
-`unpin bundle`. (A plain `cargo install` build has no overlay, hence no
-embedded manual.)
+the builtin `man` reads it back out of the running `unpin` binary in-process. (A
+plain `cargo install` build has no overlay, hence no embedded manual.)
 
 See [runtime-data.md](runtime-data.md) for the broader picture of packages
 embedding what they used to ship as companion files.

@@ -295,9 +295,10 @@ one `unpin/aliases` and the §4 guard never fires.
   materializes `unpin/*` entries (with size caps), enforces the `unpin/aliases`
   dedup guard (§4). `Ok(None)` = no `unpin/*` anywhere.
 - `Meta::aliases() -> Vec<String>` — parse `unpin/aliases` (dedup, skip blank/`#`).
-- `Meta::entries_under(prefix)` / `entry(path)` — raw access. The stable
-  `unpin bundle list|dump` subcommand (`unpin/src/bundle.rs`) is built on these
-  and is what the `man` package consumes; see [embedded-man.md](embedded-man.md).
+- `Meta::entries_under(prefix)` / `entry(path)` — raw access. The builtin
+  `man`/`readme` verbs (`unpin/src/render/`) read these in-process; the stable
+  `unpin bundle list|dump` subcommand (`unpin/src/bundle.rs`) is built on them for
+  independent verb-packages; see [embedded-man.md](embedded-man.md).
 - Caps: max entries, per-entry size, total `unpin/*` bytes, and a max file size to
   scan — so a crafted ZIP can't drive unbounded allocation.
 
@@ -306,8 +307,9 @@ central-directory parse plus `flate2` (deflate + CRC-32) and `ruzstd` (zstd,
 method 93, pure-Rust). The metadata reader does **not** go through the `zip` crate
 (that crate stays linked for release-asset archives, but reading method 93 through
 it would pull in a C zstd and break the musl/mingw crosses). No ELF/PE/Mach-O
-parser. Rendering man pages is **not** unpin's job — the `man` package (patched
-mandoc) pulls the roff back out via `unpin bundle dump` and renders it. See
+parser. The roff *engine* is not hand-written either — `unpin man` renders
+in-process through the vendored, render-only `mandoc-sys` crate (linked, no
+`./configure`, no subprocess); unpin carries no roff logic of its own. See
 [embedded-man.md](embedded-man.md).
 
 ---

@@ -5,18 +5,26 @@ made `unpin man` collide with the system `man`:
 
 1. **Builtins** — `install`, `uninstall`, `run`, `info`, `list`, `bundle`. Logic
    lives in the `unpin` crate.
-2. **Helper verbs** — `man` today; `readme`, `changelog`, `search`, `license`
-   later. These *operate on* the catalog or on a package's embedded data
-   (`unpin/*`, see [embedded-metadata.md](embedded-metadata.md)). Their logic is
-   too heavy or too domain-specific to live in unpin (a roff renderer, a markdown
-   renderer), so each is shipped as its **own package** and reached only through
-   `unpin <verb>`.
+2. **Helper verbs** — `man`, `readme`, and later `changelog`, `search`,
+   `license`. These *operate on* the catalog or on a package's embedded data
+   (`unpin/*`, see [embedded-metadata.md](embedded-metadata.md)). A verb is
+   either **builtin** — when its renderer is small or shared (`man` and `readme`
+   link their engines and share one reflowing pager; see
+   [embedded-man.md](embedded-man.md)) — or, when its logic is heavy and
+   *independent of the pager*, shipped as its **own package** reached only through
+   `unpin <verb>`. The verb *vocabulary* is unpin's either way, and a verb never
+   lands on `PATH`.
 3. **Programs** — the catalog (`htop`, `jq`, `tar`, …). You `run` or `install`
    them; they land on `PATH` under their real name. A program *is* what its name
    says.
 
-This document specifies how category 2 works without overloading names against
-category 3 (the catalog) or against the OS `PATH`.
+A builtin verb is just a subcommand (clap parses it). **This document specifies
+the verb-*package* model** — the heavy/independent case — and the naming + `PATH`
+rules that keep any verb from overloading names against category 3 (the catalog)
+or the OS `PATH`. man and readme began as packages under this model and proved
+the renderer/pager coupling (reflow on resize) that pulled them back in as
+builtins; a future `search` (a catalog index, no pager) is the kind of verb that
+stays a package.
 
 ## The problem: name overload in two directions
 
@@ -39,14 +47,15 @@ added (`readme`, `search`, `changelog`, …):
 
 ## The model: a naming convention plus two rules
 
-A helper verb is a **normal package** — same download, cache, version, and
-uninstall machinery as any catalog program. unpin gains **no per-verb registry**
-and **no per-verb code**; it knows only a convention and two general rules.
+A *package* helper verb is a **normal package** — same download, cache, version,
+and uninstall machinery as any catalog program. unpin gains **no per-verb
+registry** and **no per-verb code**; it knows only a convention and two general
+rules. (A *builtin* verb skips all of this — it's a subcommand.)
 
-**Convention.** A helper verb `<verb>` is the package **`unpins/unpin-<verb>`**.
-`man` → `unpins/unpin-man`, `readme` → `unpins/unpin-readme`,
-`search` → `unpins/unpin-search`. The `unpin-` prefix is self-documenting: it
-marks "this is an unpin verb, not a standalone tool."
+**Convention.** A package helper verb `<verb>` is the package
+**`unpins/unpin-<verb>`** — e.g. `search` → `unpins/unpin-search`,
+`changelog` → `unpins/unpin-changelog`. The `unpin-` prefix is self-documenting:
+it marks "this is an unpin verb, not a standalone tool."
 
 ### Rule 1 — Dispatch (bare names only)
 
@@ -72,9 +81,11 @@ probe on *every* program run.
 transient error must surface as itself — otherwise a rate-limited `unpin htop`
 would mysteriously try to run `unpin-htop`.
 
-This **supersedes** the "package of the same name" coincidence in the current
-[embedded-man.md](embedded-man.md) flow: `unpin man` resolves to
-`unpins/unpin-man` by rule, not because a package named `man` happens to exist.
+This **supersedes** the original "package of the same name" coincidence (where
+`unpin man` only worked because a package was literally *named* `man`): a package
+verb like a future `unpin search` resolves to `unpins/unpin-search` *by rule*, not
+by a name collision. (`man` and `readme` no longer travel this path at all — they
+are builtins; see the Status section.)
 
 ### Rule 2 — Helper verbs never land on `PATH`
 
@@ -118,37 +129,37 @@ the same as owning the verb *implementations*.
 
 ## How the family generalizes
 
-Every future helper drops into the same shape — `+1` package, `0` lines of
-verb-specific unpin code:
+A future helper drops into whichever shape fits — a **builtin** when it renders a
+package's embedded data through the shared pager, or a **package** when its logic
+is heavy and pager-independent:
 
-- **`unpin readme <pkg>`** — symmetric with man: reads `unpin/readme/README.md`
-  from the bundle via `unpin bundle dump` (with a repo fetch as fallback) and
-  renders markdown. Package `unpins/unpin-readme`.
-- **`unpin changelog <pkg>`** — same, `unpin/changelog/`.
+- **`unpin changelog <pkg>`** — like readme: renders embedded `unpin/changelog/`
+  markdown through the same pager. A **builtin** `Reflow` renderer (termimad is
+  already linked), `0` new packages.
 - **`unpin search <query>`** — operates on the *catalog*, not a bundle, so it
   needs a catalog index to exist somewhere (the website's `gen-packages.py`
-  already enumerates the catalog and could emit a JSON index for
-  `unpin-search` to consume). The dispatch/`PATH` treatment is identical; only
-  the data source differs. Package `unpins/unpin-search`.
+  already enumerates the catalog and could emit a JSON index to consume). No
+  pager coupling, so it's the natural **package** case: `unpins/unpin-search`,
+  reached by the dispatch rules above and never on `PATH`.
 
-All of them read package data through the **stable** `unpin bundle list|dump`
-interface ([embedded-man.md](embedded-man.md)), so unpin's core stays tiny as the
-family grows.
+A package verb reads embedded data through the **stable** `unpin bundle
+list|dump` interface ([embedded-man.md](embedded-man.md)); a builtin reads it
+in-process. Either way unpin's core stays small as the family grows.
 
 ## Status
 
-Implemented and live (2026-06-08):
-
-- **`unpin` crate.** Bare-name resolution falls back `unpins/<token>` →
+- **`man` and `readme` are builtins** (2026-06-11). Each is a `Reflow` renderer
+  over the shared pager in `unpin/src/render/` — `man` links the `mandoc-sys`
+  crate, `readme` uses termimad — reading the embedded bundle in-process. They
+  were pulled in from the `unpins/unpin-man` / `unpins/unpin-readme` packages
+  (now retired) because the pager has to re-render on resize (reflow), which
+  needs the renderer in-process. See [embedded-man.md](embedded-man.md).
+- **The verb-*package* model stays available** for a future heavy/independent
+  verb. Bare-name resolution falls back `unpins/<token>` →
   `unpins/unpin-<token>` on a genuine 404 (bare names only; see
   `verb_fallback_spec` / the run resolver in `install/mod.rs`, and
-  `github::FetchError` for the 404-vs-transient distinction). The cache-first
-  check covers both candidates, so a resolved verb prints no "Resolving…" on
-  later runs. `install/linker.rs` skips `PATH`-linking for catalog `unpins/unpin-*`
-  packages — they install resident-only.
-- **The man package.** `unpins/man` was renamed to **`unpins/unpin-man`**; the
-  binary installs as `unpin-man` (action-build locates the primary at
-  `bin/<name>`). The old `unpins/man` is gone (404, no redirect), so program-first
-  dispatch falls through to the verb. See [embedded-man.md](embedded-man.md).
+  `github::FetchError` for the 404-vs-transient distinction). `install/linker.rs`
+  skips `PATH`-linking for catalog `unpins/unpin-*` packages — they install
+  resident-only. The machinery is generic; man/readme simply no longer use it.
 - **Catalog policy.** The naming reservation (no program may take a verb's bare
   name) is recorded in [adding-a-package.md](adding-a-package.md).
