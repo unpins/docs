@@ -79,17 +79,32 @@ Why not pkgsStatic for the whole build:
 1. The `pkgsStatic` view triggers a rebuild of the cross cctools/ld64 toolchain in its "static" variant, which fails on `xar-static-arm64-apple-darwin` (`Cannot build without libxml2` — the cross-static libxml2 chain is broken upstream).
 2. Plain cross still satisfies the policy because Rust does the static link itself.
 
-**The libiconv catch:** rustc's default libs for darwin include `-liconv`. The default cross stdenv resolves it to nixpkgs' libiconv dylib in `/nix/store` → output binary carries `LC_LOAD_DYLIB /usr/lib/libiconv.2.dylib` (or the `/nix/store` path before retargeting). Action-build's darwin allow-list rejects this — Apple's ABI contract only covers libSystem + libobjc + Frameworks; libiconv is de-facto stable but not contractually.
+**The libiconv catch** is not Rust-specific — it bites any darwin build that references iconv (rustc appends `-liconv` by default; C objects like libxml2.a's `encoding.o` call `iconv_open`). macOS keeps iconv in a standalone `libiconv` (musl/glibc fold it into libc, so Linux needs nothing), and the allow-list permits only libSystem + libobjc + Frameworks. There are **two distinct traps**:
 
-Fix: prepend `cross.pkgsStatic.libiconv` to `buildInputs`. Only libiconv itself goes through `pkgsStatic` (it's a leaf — doesn't pull the broken cctools-static cascade). The linker sees the `.a` first and emits no `LC_LOAD_DYLIB` for libiconv:
+1. **Target link (every darwin build).** Whatever references iconv needs a libiconv to resolve against, and it must be the **static** one — the default cross stdenv resolves `-liconv` to nixpkgs' libiconv *dylib*, so the binary carries `LC_LOAD_DYLIB /usr/lib/libiconv.2.dylib`, which the allow-list rejects. Prepend `pkgsStatic.libiconv` (a leaf — it doesn't pull the broken cctools-static cascade) so the linker sees the `.a` first and emits no load command, and append a bare `-liconv` after the archive that references it.
 
-```nix
-darwinX86Unpin =
-  let cross = nixpkgsFor.aarch64-darwin.pkgsCross.x86_64-darwin; in
-  (mkUnpin { rustPlatform = cross.rustPlatform; }).overrideAttrs (old: {
-    buildInputs = [ cross.pkgsStatic.libiconv ] ++ (old.buildInputs or [ ]);
-  });
-```
+2. **Build-host link (cross only).** cargo/cmake build scripts and proc-macro dylibs are compiled for the **build host**, and rustc appends `-liconv` to *their* link too — against the build cc-wrapper's salted `NIX_LDFLAGS_<buildSalt>` (e.g. `NIX_LDFLAGS_arm64_apple_darwin`), which has no default path for it, so the build dies with `ld: library not found for -liconv` *during the build* (not a gate failure). Hand that wrapper a `-L` to the **build-arch** libiconv. This is **cross-only**: on a native build the build salt equals the target salt, so the same `-L` would instead pull a dynamic libiconv into the final binary and trip trap 1. (`depsBuildBuild = [ libiconv ]` does *not* fix it — that surfaces only the `-dev` output, not the `out` that holds the dylib; use `lib.getLib`.)
+
+   Note: CI builds `darwin-x86_64` as an **arm64→x86_64 cross** (action-build has no Intel macOS runner; see `runnerMap`), so a native build on an Intel Mac will *not* reproduce this trap — only the CI cross or the local `./build-aarch64-darwin` Intel→arm64 check will.
+
+**Both are handled automatically** for any `mkStandaloneFlake` package by `nix-lib`'s `withDarwinIconv` (folded into the `core` pipeline beside `filterEnableStaticOnDarwin`): it adds `pkgsStatic.libiconv` + a bare `-liconv` to every darwin build, and the cross-only build-host `-L`. So a package whose iconv need is on its **own final drv** needs *nothing* — don't re-add it.
+
+**You still wire it by hand when the iconv reference is not on the final mkStandaloneFlake drv:**
+
+- **A custom cross derivation** assembled outside the `stripped` pipeline — e.g. `unpin`/`unpin-readme`'s `darwinX86Unpin` (a hand-built `pkgsCross.x86_64-darwin.rustPlatform` drv). Both traps apply; do both by hand:
+
+  ```nix
+  darwinX86Unpin =
+    let cross = nixpkgsFor.aarch64-darwin.pkgsCross.x86_64-darwin; in
+    (mkUnpin { rustPlatform = cross.rustPlatform; }).overrideAttrs (old: {
+      buildInputs = [ cross.pkgsStatic.libiconv ] ++ (old.buildInputs or [ ]);   # trap 1
+      NIX_LDFLAGS_arm64_apple_darwin = "-L${cross.buildPackages.libiconv}/lib";   # trap 2
+    });
+  ```
+
+- **A dependency's internal static link** — e.g. `fastfetch` links libxml2.a *through imagemagick*; the `-liconv` belongs on the **imagemagick** overlay, which `withDarwinIconv` (on the fastfetch drv) never reaches.
+
+- **A libiconv whose `.a` lives in the `dev` output** — `binutils` folds `pkgsStatic.libiconv`'s archive straight into a manual link line and must probe `getDev`/`getLib`/`out` for it, because the bare `-liconv` (resolved via the `out/lib` `-L`) won't find it there.
 
 **Previous failed approach** (don't revive): `install_name_tool -change` retargeting to `/usr/lib/libiconv.2.dylib`. The dylib is in the dyld shared cache on every macOS, but action-build rejects it — staticize instead.
 
