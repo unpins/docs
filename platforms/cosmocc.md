@@ -4,6 +4,8 @@ The Cosmopolitan toolchain ([github.com/jart/cosmopolitan](https://github.com/ja
 
 Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page copy + APC (no DLL singleton like MSYS), has its own libc that doesn't depend on `cygwin1.dll`, and bundles missing resources (`/etc/profile`, etc.) into the binary itself via zipos.
 
+> **Invariant — we ship a PE, never an APE.** cosmocc is used here *only* as a POSIX-compatibility layer to build a **Windows** binary. The cross stdenv's setup hook runs `apelink -V 4` in `fixupPhase` to extract a single **Windows x86_64 PE (`.exe`)** — the same artifact shape as a mingw build. The default APE fat/polyglot binary (one binary for Linux+macOS+Windows+BSD) is a *build intermediate only*; unpins never ships it, and external copy must not imply a universal binary ([messaging.md](../messaging.md)). So a "cosmo package" differs from a "mingw package" only in build toolchain, never in shipped format.
+
 ## Status
 
 The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Two entry points:
@@ -42,7 +44,7 @@ If `pkgsCross.mingwW64.<pkg>` works, prefer it — the cosmocc route trades the 
 
 ### What `cosmocc` produces
 
-- **Default**: `cosmocc -o out src.c` produces an **APE fat** binary — polyglot Linux+macOS+Windows+BSD for x86_64+aarch64. `file` reports `DOS/MBR boot sector` (MZ header at offset 0).
+- **Default**: `cosmocc -o out src.c` produces an **APE fat** binary — polyglot Linux+macOS+Windows+BSD for x86_64+aarch64. `file` reports `DOS/MBR boot sector` (MZ header at offset 0). For unpins this is a **build intermediate only** — the cross stdenv always extracts the Windows-only PE (`-V 4`, next) and ships that, never the fat APE (see the invariant at the top).
 
 - **Extracting a platform-specific PE/ELF**: needs `apelink -V <bits>`:
 
