@@ -76,6 +76,7 @@ cp ../docs/templates/flake.nix flake.nix             # then edit name + adapt
 mkdir -p .github/workflows
 cp ../docs/templates/build.yml .github/workflows/<pkg>.yml
 cp ../docs/templates/release.yml .github/workflows/release.yml
+cp ../docs/templates/CHANGELOG.md CHANGELOG.md          # then fill the initial release under [Unreleased]
 ```
 
 Edit `flake.nix`: set `description`, `name`, and any `build` / `windowsBuild` / `package_data` overrides. For a cosmocc Windows build, write `windowsBuild = import ./cosmo.nix { inherit unpins-lib; };` and put the recipe in a sibling `./cosmo.nix` (see [platforms/cosmocc.md](platforms/cosmocc.md)). The minimum case (no quirks, three platforms) is ~16 lines — see `tree/flake.nix`.
@@ -184,6 +185,7 @@ Commit and push `website/packages.html` + `gen-packages.py` in the `website/` re
 - [ ] `.gitignore` (3 lines)
 - [ ] All upstream features enabled; any feature dropped because it's impossible on a target is noted in the README's Build notes with a one-line reason
 - [ ] `README.md` follows the canonical template
+- [ ] `CHANGELOG.md` from the template, with the initial release described under `## [Unreleased]` (see [releasing.md](releasing.md#changelog-and-release-notes))
 - [ ] `.github/workflows/<pkg>.yml` and `release.yml`
 - [ ] Native build: produces `statically linked` ELF on Linux, libSystem-only on macOS
 - [ ] Windows build: produces PE32+ with only system DLLs imported

@@ -95,6 +95,13 @@ The [Releases](https://github.com/unpins/<pkg>/releases) page has standalone bin
   and — in one line — why a platform is excluded (the upstream gap). No roadmaps,
   porting plans, or effort estimates: we package what we ship, we don't plan
   upstream development. Drop this section if there's nothing to note.
+
+  Only PACKAGE-SPECIFIC facts go here. The project-wide guarantees — single
+  self-contained binary, PE32+ on Windows, no companion DLLs, cosmo as a
+  build-time POSIX layer apelinked to a PE — are global (the opening sentence +
+  docs/platforms/cosmocc.md); never restate them per package. For the Windows
+  variant, name it (mingw / cosmo) and, if cosmo, give the one-line reason —
+  which POSIX API the package needs that mingw lacks — and stop there.
 -->
 
-- <e.g. Windows is cross-built with mingw; the `.exe` has no companion DLLs.>
+- <e.g. Windows uses cosmo, not mingw, because <pkg> needs <POSIX API, e.g. termios/fork> that mingw lacks.>

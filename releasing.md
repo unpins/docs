@@ -90,6 +90,32 @@ Packages that legitimately have no man (codec libs, `coreutils`/`busybox` withou
 
 The Build workflow on `main` must be green across all matrix jobs before dispatching Release. CI runners cover the native paths your local box can't reach: `aarch64-linux` + `armv7l-linux` on `ubuntu-24.04-arm`, `aarch64-darwin` on `macos-14`, Windows on `windows-latest`.
 
+## Changelog and release notes
+
+Each package keeps a **user-facing** `CHANGELOG.md` in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+format — curated, not the git log. It records only what someone running the
+binary can observe: the packaged upstream version, a platform gained or dropped,
+a feature enabled/disabled, an embedded resource, a fix to *our* build. Internal
+churn (nix-lib pin bumps, README wording, CI tweaks) stays in git history. Copy
+[templates/CHANGELOG.md](templates/CHANGELOG.md) when scaffolding a package;
+[`tree/CHANGELOG.md`](https://github.com/unpins/tree/blob/main/CHANGELOG.md) is
+the filled reference.
+
+The cost is diluted by writing each entry **in the same commit that makes the
+change**, under a rolling `## [Unreleased]` heading. You never write a version
+header by hand: because `<pkgrel>` is computed at release time, the Release
+workflow stamps it for you — it renames `## [Unreleased]` to `## [<tag>] - <date>`,
+commits that back to `main`, then tags. The release job extracts that section and
+uses it as the body of the GitHub release, beneath a header it composes: the
+README's opening sentence with the version spliced in after the linked name, the
+`unpin install` one-liner, and a `Built on nixpkgs <channel> (<rev>, <date>)`
+provenance line read from `flake.lock`. A package that hasn't adopted a
+`CHANGELOG.md` yet is unaffected — the workflow falls back to GitHub's
+auto-generated commit notes — so adoption can be gradual, one package at a time.
+
+Before cutting a release, make sure `## [Unreleased]` describes this release's
+user-facing changes (and nothing stale from a prior one).
+
 ## Cutting a release
 
 After the Build workflow has gone green on `main`:
