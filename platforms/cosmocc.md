@@ -40,6 +40,55 @@ If `pkgsCross.mingwW64.<pkg>` works, prefer it — the cosmocc route trades the 
 
 4. **Wine 10.0 on Debian 13 fails on every APE and on cosmo PE binaries** — known upstream incompatibility. Smoke-test on real Windows (CI runner or VM) or skip the local sanity check.
 
+## Windows `.exe` command lookup & multicall `argv[0]`
+
+On Windows the installer materialises every program (and every multicall alias)
+as a `<name>.exe` hardlink — `cmd.exe`/PowerShell only resolve a bare `ls` to
+`ls.exe` via `PATHEXT`, so the `.exe` is mandatory. Two distinct things then
+break, both because of that suffix, and both are fixed in-source rather than by
+littering the directory with a second extensionless link (which would also
+double every shell's tab-completion list):
+
+1. **A cosmo shell can't find `ls`.** Cosmopolitan does **not** append `.exe`
+   anywhere in its lookup→exec chain (`commandv` calls `access(name, X_OK)` with
+   the exact name; `execve-nt` execs the resolved path verbatim — confirmed in
+   the cosmo source). cmd/PowerShell (PATHEXT) and MSYS bash (appends `.exe`
+   natively) hide this; the catalog's own cosmo shells are the only ones that
+   don't. **Fix:** a `__COSMOCC__`-guarded patch per shell
+   (`<shell>/findcmd-exe-lookup.patch`, applied via `postPatch` with an explicit
+   `patch -p1` so it's independent of how nixpkgs applies the upstream
+   `bash5x-NNN`-style patches; the file must be `git add`-ed or the flake won't
+   see it). Each retries a PATH candidate with `.exe` appended when the bare name
+   misses, and — critically — returns the `.exe`-bearing path so the *exec*, not
+   just the existence check, uses it. Sites: bash `find_in_path_element`
+   (findcmd.c); dash helper `cosmo_exe_fixup` in `find_command` + `shellexec`
+   (dash stores only the PATH index and re-walks via `padvance`, so both points
+   need it); mksh `search_path` / oksh `search()` (X-string ENOENT retry); tcsh
+   `texec` (retry `execv` on ENOENT) **and** `tellmewhat` (so `which`/`where`
+   report the `.exe`); zsh `hashcmd` (hash a `HASHED` node holding the full
+   `.exe` path, else `execute()`/`findcmd()` rebuild the bare name) **and** the
+   relative-`$path` loop in `execute()` (zsh never routes relative dirs through
+   `hashcmd`). All six verified on a real Win10 VM (`ls` typed bare runs;
+   negative control still "command not found").
+
+2. **A multicall rejects `ls.exe`.** A multicall dispatches on `argv[0]`; an
+   alias invoked as `ls.exe` (or with a `\\` path) must map to applet `ls`. The
+   shared dispatchers `lib.multicallDispatcherC` / `lib.multicallTableDispatcherC`
+   already strip a trailing `.exe`/`.com` and a `\\` dir prefix (`copy_basename`
+   in nix-lib), so every Windows multicall built through them
+   (`e2fsprogs`/`findutils`/`procps-ng`/`srt`/`librist`/…) is already correct.
+   The exceptions are the two multicalls that keep their **own** upstream
+   dispatch: **coreutils** (GNU's `last_component(argv[0])` in `src/coreutils.c`)
+   needs the same strip — added under `__COSMOCC__` in
+   `coreutils/coreutils-cosmo.patch`; and **busybox**, which is `linuxOnly` and
+   never ships on Windows, so it needs nothing.
+
+Tab-completion is a third, separate code path (directory scan / command hash) and
+is **not** affected by the lookup patch: `ls⟨Tab⟩` completes to `ls.exe` (the
+on-disk name), exactly as `cmd.exe` shows it, and the completed `ls.exe` runs.
+Making completion offer the bare `ls` would mean patching each shell's completion
+subsystem for no functional gain — left as-is.
+
 ## Toolchain mechanics (`cosmocc` 4.0.2)
 
 ### What `cosmocc` produces
