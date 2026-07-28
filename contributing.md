@@ -27,11 +27,15 @@ If both check out, the path is [adding-a-package.md](adding-a-package.md). The c
 
 - Subject line ≤ 70 chars. The body explains *why* the change is needed, not what the diff shows.
 - Reference the upstream behavior that motivated a patch in the patch's leading comment block — see [patches.md](patches.md).
-- AI-assisted commits carry the trailer:
+- AI-assisted commits carry a co-author trailer:
 
   ```
-  Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+  Co-Authored-By: Claude <noreply@anthropic.com>
   ```
+
+  The agent's harness writes this itself, stamping the model it ran as (e.g.
+  `Claude Opus 5 (1M context)`). Don't pin a version by hand — the history
+  already carries several, and each one records which model wrote that commit.
 
 ## Code conventions (Nix)
 

@@ -61,14 +61,6 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [crypto-backend.md](crypto-backend.md) — prefer mbedtls over OpenSSL for static crypto: why, platform-conditional dep, per-consumer selectors, rtmpdump exception.
 - [templates/](templates/) — minimal `flake.nix`, build/release workflow files.
 
-## Commits
-
-AI-assisted commits carry the trailer:
-
-```
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-```
-
 ## Source of authority
 
 When two places disagree, the order is:
