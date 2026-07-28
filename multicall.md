@@ -43,6 +43,18 @@ per package):
   renamed binaries and the smoke test dispatch via the flag
   (`smoke.exe --unpin-program=<applet> …`), and a canonical name that is itself an
   applet is never ambiguous with a sibling.
+- **Windows caveat**: some upstream programs rebuild their own `argv` from the real
+  command line (`CommandLineToArgvW`, msvcrt `__wgetmainargs`) and so throw away the
+  argv the dispatcher hands them — they re-read the selector and report `argv[0]` as
+  the `.exe` path; `libwebp` is stricter still and aborts on its `wargc == argc`
+  check. On mingw the dispatcher therefore also rewrites the process command line to
+  `<applet> <args…>` before calling the applet. Pass `windows = true` to the
+  generator to get it (`flac`, `libwebp`, `opus-tools`, `vorbis-tools`,
+  `poppler-utils` need it; `ffmpeg` instead patches its own
+  `prepare_app_arguments`). Only a plain unquoted `--unpin-program=NAME` second
+  token is rewritten. It is off by default so every non-Windows `.drv` keeps its
+  hash, and cosmo doesn't want it: an APE never defines `_WIN32`, so those upstream
+  rebuilds are not compiled in.
 - **Bare/unknown** prints the program list and exits 0 (a non-list junk arg prints
   a `--unpin-program=<name>` hint on stderr and exits 1), unless `defaultApplet` is
   passed: `lib.multicallDispatcherC { name = "libwebp"; defaultApplet = "cwebp"; }`
