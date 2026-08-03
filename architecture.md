@@ -46,7 +46,6 @@ manifest                                          — read by action-build for C
 | `windows` | `false` | Set to `true` to enable the plain mingw cross path: `(mingwStaticCross pkgs).<pkgsAttr>`. (`windowsBuild` not null also enables it.) |
 | `windowsCosmo` | `false` | Legacy shortcut for `windowsBuild = pkgs: (cosmoStaticCross pkgs).<pkgsAttr>` (no consumer customization). The catalog now uses the `./cosmo.nix` sidecar pattern via `windowsBuild` for symmetry with mingw; this flag stays for one-liner cases. See [platforms/cosmocc.md](platforms/cosmocc.md). |
 | `package_data` | `false` | Off by default — embedding runtime data in the binary is the norm. Set `true` only for data that genuinely can't be embedded; action-build then publishes `result/share` as a `.tar.zst`. See [runtime-data.md](runtime-data.md). |
-| `bootstrap_naming` | `false` | Used by `unpin/` itself for the bootstrap asset name convention. |
 | `own_software` | `false` | Marks `unpin/` itself (and any future first-party tool) — affects release notes. |
 
 ### Output post-processing
