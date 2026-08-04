@@ -7,28 +7,38 @@ When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shad
 
 This is distinct from the *whole-program-as-a-library* embed (e.g. dash inside git) in [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library) — there the goal is to hide every symbol but one; here every program keeps its own entry point and the programs are peers.
 
-## The dispatcher front-end (`lib.multicallDispatcherC`)
+## The dispatcher front-end (`lib.multicallTableDispatcherC`)
 
 Both recipes end the same way: a tiny C `main` implementing the unified dispatch
 contract. That front-end is **shared** — generate it with
-`lib.multicallDispatcherC`, don't hand-copy it (the per-package copies had drifted
-into a dozen subtly different dialects). It emits `multicall/dispatcher.c`:
+`lib.multicallTableDispatcherC`, don't hand-copy it (the per-package copies had
+drifted into a dozen subtly different dialects). It emits
+`multicall/dispatcher.c`. There is exactly **one** generator: an earlier
+`lib.multicallDispatcherC` taking a flat one-name-per-line list was folded into
+this one, whose table is a superset (a flat list is the TSV with both columns
+equal). Consumers still build a `multicall/apps.list` for their *own* loops —
+the generator does not read it.
 
 ```nix
-# In the consumer's postBuild, AFTER writing multicall/apps.list:
-#   printf '%s\n' "''${apps[@]}" > multicall/apps.list   # one applet name per line
+# In the consumer's postBuild, AFTER writing multicall/applets.list:
+#   for a in $apps; do printf '%s\t%s\n' "$a" "$(echo "$a" | tr -c 'A-Za-z0-9_' '_')"; \
+#   done > multicall/applets.list
 # Invoke at COLUMN 0 (heredoc `CBODY` terminators must reach the shell at col 0):
-${lib.multicallDispatcherC { inherit name; }}
+${lib.multicallTableDispatcherC { inherit name; }}
 $CC -O2 -c -o multicall/dispatcher.o multicall/dispatcher.c
 ```
 
 Contract and canonical behaviour (all fixed in the helper — nothing to re-decide
 per package):
 
-- **Applet list** comes from `multicall/apps.list`, one name per line. The caller
-  writes it (often the same list it uses to make the install symlinks).
-- **Symbol naming**: each applet's C symbol is `tr -c 'A-Za-z0-9_' '_'` of its
-  name, so a hyphenated applet (`srt-live-transmit`, `heif-enc`) maps to a legal
+- **Applet list** comes from `multicall/applets.list`, a TSV the caller writes:
+  `<applet-name>\t<fn-base>`, one row per name. The table is deliberately
+  **many-to-one** — e2fsprogs maps `mkfs.ext2/3/4` → `mke2fs_main` and
+  `e2label`/`findfs` → `tune2fs_main` — so the symbol cannot be derived from the
+  applet name. Aliases are extra rows at the same `<fn-base>`.
+- **Symbol naming**: the C symbol is `<fn-base>_main`, taken verbatim from the
+  second column. Sanitise when you *write* the row — `tr -c 'A-Za-z0-9_' '_'` —
+  so a hyphenated applet (`srt-live-transmit`, `heif-enc`) still names a legal
   identifier (`srt_live_transmit_main`, `heif_enc_main`). Your per-tool
   `objcopy --redefine-sym main=<sym>_main` rename **must** produce that same
   symbol (plain tools need no sanitiser; `srt`/`librist`/`heif` already rename to
@@ -57,7 +67,8 @@ per package):
   rebuilds are not compiled in.
 - **Bare/unknown** prints the program list and exits 0 (a non-list junk arg prints
   a `--unpin-program=<name>` hint on stderr and exits 1), unless `defaultApplet` is
-  passed: `lib.multicallDispatcherC { name = "libwebp"; defaultApplet = "cwebp"; }`
+  passed — an `<fn-base>`, not an applet name:
+  `lib.multicallTableDispatcherC { name = "libwebp"; defaultApplet = "cwebp"; }`
   makes a bare `libwebp -version` run `cwebp` (so `-version` smoke is clean). Used
   by `libwebp` (cwebp), `flac` (flac), `vorbis-tools` (ogg123), `opus-tools`
   (opusenc), and the Info-ZIP/bzip2 family below. A canonical name that is itself
@@ -65,8 +76,8 @@ per package):
 
 `defaultApplet` also covers the **"the package's own tool self-detects its
 argv[0]"** pattern (`bzip2`/`unzip`/`zip`): put only the real `*_main` programs
-in `apps.list`, and let the upstream tool handle its built-in argv[0] aliases via
-the fallback. E.g. `bzip2` → `apps.list = bzip2 bzip2recover`, `defaultApplet =
+in the table, and let the upstream tool handle its built-in argv[0] aliases via
+the fallback. E.g. `bzip2` → rows `bzip2 bzip2recover`, `defaultApplet =
 "bzip2"`; the `bunzip2`/`bzcat` aliases are NOT applets, so they fall through to
 `bzip2_main` with the original argv (argv[0] = `bunzip2`) and bzip2 self-detects
 them. Same for `unzip` (applets `unzip funzip`, alias `zipinfo` → unzip), `zip`
@@ -74,8 +85,9 @@ them. Same for `unzip` (applets `unzip funzip`, alias `zipinfo` → unzip), `zip
 positional form gone, reaching a *sibling* applet of an applet-named canonical
 binary is unambiguous: `zip --unpin-program=zipnote` runs `zipnote`.
 
-Two parameters total: `name` and the optional `defaultApplet`. Everything that
-used to vary per package (list source, sanitiser, fallback style) is now fixed.
+Three parameters total: `name`, the optional `defaultApplet`, and the optional
+`windows` above. Everything that used to vary per package (list source,
+sanitiser, fallback style) is now fixed.
 
 **One documented exception** that intentionally keeps a hand-written dispatcher —
 the only genuine divergence the generator does not model:
@@ -98,28 +110,20 @@ dispatcher; the rewritten generator's bare fallback now gives the same clean
 exit-0 listing, so it was folded in.) `unpins/libvpx` is the lone remaining
 exception that keeps a hand-written dispatcher (its per-tool `usage_exit` hook).
 
-### Recipe-A variant — `lib.multicallTableDispatcherC`
+**argv[0] normalisation** before the table lookup: the generator strips a
+directory prefix on `/` *and* on `\\` (unconditional — a cosmo APE's argv[0] can
+carry a backslash and `_WIN32` is not defined for cosmo), a trailing `.exe`, and
+a libtool `lt-` prefix.
 
 The `ld -r` family (`e2fsprogs`, `util-linux`, `shadow`, `findutils`,
-`procps-ng`) needs a **name→function table that is many-to-one** — e2fsprogs
-maps `mkfs.ext2/3/4` → `mke2fs_main`, `e2label`/`findfs` → `tune2fs_main` — so
-the symbol can't be derived from the applet name. They use the sibling generator
-`lib.multicallTableDispatcherC { name, defaultApplet ? null }`, whose contract is
-a TSV the caller writes first:
+`procps-ng`) is what the many-to-one table was built for, and it also uses the
+`<fn-base>` spelling of `defaultApplet` most visibly — procps-ng's
+`src_ps_pscommand`, findutils' `find`. A renamed binary (CI's `smoke.exe`)
+selects its applet with `smoke.exe --unpin-program=<applet>`.
 
-```
-multicall/applets.list:   <applet-name>\t<fn-base>      # C symbol is <fn-base>_main
-```
-
-Aliases are extra rows pointing at the same `<fn-base>`. It implements the same
-dispatch contract as `multicallDispatcherC` (alias path on `argv[0]`,
-`--unpin-program=NAME` selector on the canonical/renamed binary, no positional
-form), plus it strips a libtool `lt-` argv[0] prefix and an unconditional `\\` dir
-separator (cosmo APE argv[0] can carry one and `_WIN32` isn't defined for cosmo).
-`defaultApplet` here is an `<fn-base>` (e.g. procps-ng's `src_ps_pscommand`,
-findutils' `find`), so a bare `--version` or a renamed binary routes to that tool.
-A renamed binary's smoke selects its applet with
-`smoke.exe --unpin-program=<applet>`.
+Callers inside `nix-lib` — `cppRenameMulticall` and `mkMegaMulticall` — write
+the TSV themselves from their program/alias lists; only the bespoke
+`<pkg>/multicall.nix` recipes write it by hand.
 
 Two recipes, by how the upstream builds the programs.
 
