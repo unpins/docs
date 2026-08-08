@@ -53,6 +53,17 @@ per package):
   renamed binaries and the smoke test dispatch via the flag
   (`smoke.exe --unpin-program=<applet> …`), and a canonical name that is itself an
   applet is never ambiguous with a sibling.
+
+  That error on an unknown NAME is load-bearing, and CI uses it as a **negative
+  control**: the applet sweep asks every shipped binary for an impossible
+  program, and a package whose flake declares two or more programs must get the
+  refusal back. Nothing earlier in the pipeline can see a missing dispatcher —
+  `unpin/aliases` is written from the DECLARATION, so a binary announces its
+  applets whether or not anything dispatches them, and the announced==embedded
+  guards stay green. Measured: bzip2's `.exe` announced four applets and ran
+  bzip2's `main` for all of them, with every build-time guard passing. The sweep
+  also compares that announced list against `manifest.applets_by_target` (the
+  flake's own declaration) in both directions.
 - **Windows caveat**: some upstream programs rebuild their own `argv` from the real
   command line (`CommandLineToArgvW`, msvcrt `__wgetmainargs`) and so throw away the
   argv the dispatcher hands them — they re-read the selector and report `argv[0]` as
