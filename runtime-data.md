@@ -80,6 +80,17 @@ miniz is built with `-DMINIZ_NO_*` so only the inflate path is linked, plus
 > Every VFS package (vim, gvim, perl, biber) uses this self-EOF model; the
 > old `.incbin` blob-section variant is gone.
 
+**A runtime tree must use this pattern — `.incbin`/`blob.S` is banned, not
+merely retired.** An `.incbin` names a file resolved when the *assembler* runs.
+Under the engine the package compiles to a bitcode module, so that reference
+survives unresolved into `module.bc`, and the multicall mega-link runs in a
+different working directory, where the file does not exist: the darwin mega
+fails to link. The self-EOF ZIP is appended *after* the link (`unpinEmbedWrap`
+for a standalone binary, `withRuntimeData`/`withUnpinEmbed` inside the mega), so
+it is mega-safe and byte-identical across linux, the crosses, darwin and
+windows. Pattern 1 is unaffected — `xxd -i` emits a C array that compiles into
+the module like any other data.
+
 ## Fallback — companion archive (`package_data`, opt-in)
 
 `package_data` is `false` by default in `mkStandaloneFlake`. Set it `true` only

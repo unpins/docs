@@ -37,6 +37,10 @@ CI applies two checks (`action-build/.github/workflows/build.yml`):
 
 That means **no companion DLLs** alongside the `.exe`, including `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`, or anything from `/nix/store/`. Use `-static-libgcc -static-libstdc++` and `LDFLAGS=-all-static`.
 
+### Zero references is not zero strings
+
+On Linux the self-containment check is the *closure*: `nix-store -q --references <out>` must list nothing beyond the package itself and its `-man` output. A binary that passes can still contain literal `/nix/store/…` strings — a data-dir or config default the build baked in, overridden at runtime and made ref-free with `unsafeDiscardReferences`. That is fine and expected; don't chase it. What matters is that nothing in the closure, and no `NEEDED` entry, points outside the artifact.
+
 ## When the upstream build picks up a forbidden library
 
 Patch it out in the consumer's `build` / `windowsBuild` closure (or in `nix-lib/{native,mingw}-overlay/<lib>.nix` if the offender is a transitive lib dep). The binary must satisfy the policy; don't relax the verifier.
