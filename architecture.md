@@ -101,7 +101,7 @@ The template normalizes single- vs multi-output drvs into a single `result/` sym
 
 ## The unpin-llvm engine
 
-`engine = "unpin-llvm"` swaps the build toolchain: instead of nixpkgs' gcc-based static stdenv, the package **and its whole static dependency closure** compile with the project's clang/LLVM toolchain to LLVM bitcode, linked by lld. This is the catalog default in practice — every C/C++ package sets it; only the Rust packages (`fish`, `unpin`) don't.
+`engine = "unpin-llvm"` swaps the build toolchain: instead of nixpkgs' gcc-based static stdenv, the package **and its whole static dependency closure** compile with the project's clang/LLVM toolchain to LLVM bitcode, linked by lld. This is the catalog default in practice. Off it are the four Rust packages (`cfonts`, `fish`, `rsvg-convert`, `unpin` — the first goes through `mkRustCrate`, not `mkStandaloneFlake`) and five C/C++ ones: `busybox`, because kbuild pipes every `-MD` depfile through `fixdep`, which reopens headers the engine serves from a virtual root with no on-disk existence (its flake says so at length); and `gvim`, `vim`, `xvfb`, `xvnc`, which were never migrated and record no reason.
 
 How it's wired (all inside `mkStandaloneFlake`):
 
