@@ -79,7 +79,7 @@ cp ../docs/templates/release.yml .github/workflows/release.yml
 cp ../docs/templates/CHANGELOG.md CHANGELOG.md          # then fill the initial release under [Unreleased]
 ```
 
-Edit `flake.nix`: set `description`, `name`, and any `build` / `windowsBuild` / `package_data` overrides. For a cosmocc Windows build, write `windowsBuild = import ./cosmo.nix { inherit unpins-lib; };` and put the recipe in a sibling `./cosmo.nix` (see [platforms/cosmocc.md](platforms/cosmocc.md)). The minimum case (no quirks, three platforms) is ~16 lines — see `tree/flake.nix`.
+Edit `flake.nix`: set `description`, `name`, `smoke`/`smokePattern`, and the `multicall.programs` list (one entry per shipped program — keep `engine = "unpin-llvm"` unless the package is Rust). Add `build` / `windowsBuild` overrides only as quirks demand. For a cosmocc Windows build, write `windowsBuild = import ./cosmo.nix { inherit unpins-lib; };` and put the recipe in a sibling `./cosmo.nix` (see [platforms/cosmocc.md](platforms/cosmocc.md)). `tree/flake.nix` and `jq/flake.nix` are filled minimal references.
 
 ## 3. Generate the lock file
 

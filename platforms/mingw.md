@@ -2,7 +2,7 @@
 
 unpins' Windows builds cross-compile from Linux runners via `pkgsCross.mingwW64`. The output is a single PE32+ binary, fully statically linked except for the system DLLs listed in [../dynamic-link-policy.md](../dynamic-link-policy.md).
 
-The `mingwStaticCross pkgs` helper in `nix-lib` is the entry point — see [../architecture.md](../architecture.md). This doc covers the gotchas that you hit while writing or porting a package.
+The `mingwStaticCross pkgs` helper in `nix-lib` is the entry point — see [../architecture.md](../architecture.md). A package that sets `multicall.windows = true` additionally routes its build through the unpin-llvm engine (bitcode + self-folded dispatcher) on top of this cross set — but parts of the dependency chain still build through the gcc-based mingw path documented here, so the gotchas below stay live either way.
 
 ## POSIX shim gaps
 
@@ -216,7 +216,7 @@ The shipped path for bash on Windows is Cosmopolitan — see `unpins/bash/cosmo.
 
 ### git
 
-**Status: viable on mingw but not yet shipped — WIP in `playground/git`**, pending the runtime-shell embed port (last subsection below).
+**Status: not shipped — parked in `playground/git`** (whose flake has since focused on the native multicall build), pending the runtime-shell embed port (last subsection below). The mingw recipe below was validated 2026-05-15 and is preserved as the starting point for whoever picks it back up.
 
 Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-static cascade, ~7-8 MB after static curl). The "blocked at every layer" story from earlier sessions was wrong: every dep-chain failure was a spurious cross-build of a tool that `gitMinimal` only uses to rewrite shebangs of shell scripts we delete anyway, OR was bypassable with a knob already used by other unpins packages. The single real source bug was patched in 5 lines.
 
@@ -289,7 +289,7 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 
 `pkgsCross.mingwW64.coreutils` (9.8 in nixos-25.11) fails in `lib/savewd.c` — gnulib uses `waitpid`, which Windows doesn't have. Shimming waitpid + the rest of the fork/signal surface would be open-ended.
 
-Shipped path: native uses `pkgs.pkgsStatic.coreutils` (multicall, symlinks dropped). Windows via Cosmopolitan, wired through `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }` in `unpins/coreutils/flake.nix` (per-binary recipe + patch live in `unpins/coreutils/{cosmo.nix,coreutils-cosmo.patch}`). The original `cosmoStdenv`-based POC lives in `playground/coreutils/` for reference.
+Shipped path: native via the unpin-llvm engine (multicall self-fold). Windows via Cosmopolitan, wired through `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }` in `unpins/coreutils/flake.nix` (per-binary recipe + patch live in `unpins/coreutils/{cosmo.nix,coreutils-cosmo.patch}`, the mega-side spec in its `multicallCosmo` block).
 
 ### Other transitive dead ends in 25.11 cross-mingw
 

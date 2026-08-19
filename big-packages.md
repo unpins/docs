@@ -2,7 +2,7 @@
 
 Packages with large dependency graphs — `ffmpeg` is the canonical case — don't fit the one-liner `pkgs.pkgsStatic.<name>` flow. Both the native and Windows builds need from-source `mkDerivation` with hand-curated static deps.
 
-This page documents the validated playbook (ffmpeg 8.0 → 67 MB ELF static Linux + 71 MB PE32+ Windows, zero non-system DLLs).
+This page documents the playbook validated during the original port (ffmpeg 8.0 → 67 MB ELF static Linux + 71 MB PE32+ Windows, zero non-system DLLs). The shipping `ffmpeg/flake.nix` has since grown well past it — more codecs, the unpin-llvm engine, all CI targets green — so read this as method (audit deps first, per-build-system static knobs, cache-aware overrides), and the shipped flake as the current state.
 
 ## Two key insights
 
@@ -158,19 +158,17 @@ If you split universal and platform flags into separate Nix variables and interp
 
 Without the backslash bash sees `--enable-pthreads` as a **new command** ("command not found"). Either end the common block with `\` or put platform flags **before** the interpolation.
 
-## Known unfixable in nixpkgs-25.11 cross-mingw
+## Blocked in nixpkgs cross-mingw (as of the original port)
 
-Drop these features in the Windows configure:
+Features dropped in the Windows configure back then. **Two were later unblocked** — `x265` (the "CMake error" was the dynamic-`-lgcc_s` `.pc` leak, trap A in [platforms/mingw.md](platforms/mingw.md)) and `svt-av1` (LTO-off + the API-rename was an ffmpeg↔svt version mismatch); both ship standalone and link into ffmpeg-Windows now. Still blocked:
 
 - `gnutls` → `unbound` → `bash` (bash-cross broken — see [platforms/mingw.md](platforms/mingw.md)).
 - `libssh` → `libsodium` (the `mingw-no-fortify.patch` is already applied; another issue blocks it).
 - `libtheora` 1.1.1 (ld treats `.dll.def` as linker script).
-- `x265` 3.5 (CMake error).
 - `fftw` (gfortran-cross-wrapper broken — pulled by `speex`).
 - `rav1e` (Rust toolchain).
-- `svt-av1` (3.1.2 renamed `svt_av1_enc_init_handle`; ffmpeg 8.0 still uses old name).
 
-## Result (ffmpeg 8.0)
+## Result of the original port (ffmpeg 8.0)
 
 |                   | Native (musl)               | Windows (mingw)                              |
 | ----------------- | --------------------------- | -------------------------------------------- |
@@ -181,7 +179,7 @@ Drop these features in the Windows configure:
 | Runtime deps | Linux kernel only | KERNEL32, msvcrt, GDI32, USER32, SHELL32, SHLWAPI, OLE32, OLEAUT32, CRYPT32, ncrypt, Secur32, WS2_32, AVICAP32, ntdll (all system) |
 | Codecs | x264 (H.264 enc), dav1d (AV1 dec), libopus, libvorbis, libmp3lame, libzimg, zlib/bz/lzma/iconv, plus ffmpeg built-ins (AAC enc, MJPEG, etc.) | |
 
-Reference implementation: `playground/ffmpeg/flake.nix`.
+Reference implementation: `ffmpeg/flake.nix` (the shipping package — the playground POC graduated).
 
 ## Static GTK2 (gvim case)
 

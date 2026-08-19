@@ -11,15 +11,7 @@ Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page 
 The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Two entry points:
 
 - **`pkgs.pkgsCross.cosmo`** — first-class nixpkgs cross target, symmetric to `pkgs.pkgsCross.mingwW64`. The `pkgs` here is `mkStandaloneFlake`'s `windowsPkgs`, which `applyPatches`'s `nix-lib/cosmo-lib-systems.patch` onto nixpkgs (registers `cosmo` as a kernel + `examples.cosmo` crossSystem) and wires `config.replaceCrossStdenv` + the `nix-lib/cosmo/` library overlay. **The consumer-facing API** — catalog packages access it from a `./cosmo.nix` sidecar invoked via `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }`. See [§ The cosmo cross set](#the-cosmo-cross-set) below. The legacy `unpins-lib.lib.cosmoStaticCross pkgs` is a passthrough alias kept for API symmetry with `lib.mingwStaticCross`.
-- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. Used by `playground/{bash,coreutils,dash,links,git}` for in-tree prefix-tree builds — the older POC pattern that pre-dates first-class cross.
-
-Ports in `playground/` (older `cosmoStdenv`-based POCs, kept around for reference):
-
-- `playground/dash` — first POC (568 KB PE32+).
-- `playground/bash` — 1.85 MB PE32+, via the `superconfigure` patches.
-- `playground/coreutils` — 2.1 MB PE32+ multicall via the `superconfigure` patches. Superseded by the top-level `unpins/coreutils` (sidecar `cosmo.nix` route).
-- `playground/links` — text browser, mingw single-binary builds via in-tree port.
-- `playground/git` — multicall PE32+ with embedded cosmocc dash for shell hooks.
+- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. The older POC pattern (in-tree prefix-tree builds) that pre-dates first-class cross; `playground/git` is its last consumer. The bash/coreutils/dash/links POCs that proved it graduated to top-level packages on the `pkgsCross.cosmo` route and their playground dirs are gone — the worked notes from those ports are kept at the end of this page.
 
 The empty-import-table trade-off ([Caveats](#caveats)) has been accepted for packages where mingw is infeasible; see [../dynamic-link-policy.md](../dynamic-link-policy.md#cosmopolitan-caveat).
 
@@ -73,9 +65,9 @@ double every shell's tab-completion list):
 
 2. **A multicall rejects `ls.exe`.** A multicall dispatches on `argv[0]`; an
    alias invoked as `ls.exe` (or with a `\\` path) must map to applet `ls`. The
-   shared dispatchers `lib.multicallDispatcherC` / `lib.multicallTableDispatcherC`
-   already strip a trailing `.exe`/`.com` and a `\\` dir prefix (`copy_basename`
-   in nix-lib), so every Windows multicall built through them
+   shared dispatcher generator `lib.multicallTableDispatcherC`
+   already strips a trailing `.exe`/`.com` and a `\\` dir prefix (`copy_basename`
+   in nix-lib), so every Windows multicall built through it
    (`e2fsprogs`/`findutils`/`procps-ng`/`srt`/`librist`/…) is already correct.
    The exceptions are the two multicalls that keep their **own** upstream
    dispatch: **coreutils** (GNU's `last_component(argv[0])` in `src/coreutils.c`)
@@ -284,7 +276,7 @@ if (prev.stdenv.hostPlatform.isCosmo or false) then {
 
 ### When to use each entry point
 
-- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — currently `playground/{bash,coreutils,dash,links,git}`. The pattern matches `superconfigure`'s shape and pre-dates first-class cross.
+- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — currently only `playground/git`. The pattern matches `superconfigure`'s shape and pre-dates first-class cross.
 - **`pkgs.pkgsCross.cosmo`** for catalog packages — "I just want `pkgs.openssl` cosmo-flavoured" — when the package builds cleanly via autotools and you only need a per-binary quirk file in `<consumer>/cosmo.nix`. Most packages need `NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1` because their `meta.platforms` doesn't list cosmo.
 
 ### Cross-arch caveat
@@ -342,13 +334,13 @@ Pre-built binaries: [cosmo.zip/pub/cosmos/bin/](https://cosmo.zip/pub/cosmos/bin
 - [ahgamut.github.io/2021/07/13/ape-python/](https://ahgamut.github.io/2021/07/13/ape-python/) — APE for Python specifically.
 - [justine.lol/cosmo3/](https://justine.lol/cosmo3/) — Cosmopolitan 3 overview.
 
-## Per-port worked notes
+## Per-port worked notes (historical — from the retired playground POCs)
 
-### `playground/bash` (1.85 MB PE32+)
+### bash POC (1.85 MB PE32+)
 
 First hybrid in the fleet: native via `mkStandaloneFlake` (pkgsStatic, Linux+macOS), Windows via cosmocc. `cosmo-windows.nix` builds ncurses 6.4 → readline 8.2 → bash 5.2 in sequence in a shared `$NIX_BUILD_TOP/cosmos` prefix, then `apelink -V 4` produces `$out/bin/bash.exe`. Patches in `cosmo-patches/{bash,readline,ncurses}.diff` are copied from `superconfigure`, 54 lines total.
 
-### `playground/coreutils` (2.1 MB PE32+)
+### coreutils POC (2.1 MB PE32+)
 
 Second `cosmoStdenv` consumer; confirms the stdenv scales. Builds `gmp 6.3.0 → coreutils 9.4` in a shared prefix. Configured with `--enable-single-binary=symlinks` for the multicall single-binary, then `apelink -V 4` on `src/coreutils`.
 
@@ -366,10 +358,6 @@ Quirks discovered during the port:
 
 6. **gmp configure needs `nm` in `$NM`.** Now set automatically by the bintools-wrapper setup-hook from PATH lookup (it exports `AR`/`AS`/`LD`/`NM`/`OBJCOPY`/`OBJDUMP`/`READELF`/`RANLIB`/`STRIP`/`STRINGS`/`SIZE`/`WINDRES`); when adding a new tool name, just make sure it's symlinked in `cosmoBintoolsUnwrapped`'s `bin/`.
 
-## Future: perl, python via Cosmopolitan
+## Resolved: perl and python ship without cosmo
 
-For `perl` / `python` in unpins, **do not rewrite foreign-dlopen ourselves**. Import the maintained builds from `jart/cosmopolitan` (`python.com`, `perl.com`) — analogous to the dash POC.
-
-The root problem for static Python/Perl is `dlopen` of extensions (XS, wheels with `.so`). In musl-static pure form it doesn't work. Reimplementing the ELF loader in user space + trampolines (the foreign-dlopen route) is amateur Cosmopolitan; the upstream solution already handles the edge cases. Justine maintains Python and Perl actively.
-
-Open decision before implementing: the empty-import-table caveat above. APE delivers one binary multi-OS, or use `apelink -V <bits>` to separate by platform (dash POC path), or accept APE as a special case. Ask the user before coding.
+An earlier note here recommended importing `jart/cosmopolitan`'s maintained `python.com` / `perl.com` if perl/python ever joined the catalog (the worry was `dlopen` of extensions under musl-static). That's moot: both ship today as top-level packages built with the unpin-llvm engine — see `perl/flake.nix` and `python/flake.nix` for how the extension question was actually handled.

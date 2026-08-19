@@ -2,34 +2,26 @@
 
 Some programs need files beyond the executable at runtime: `vim` needs its
 `share/vim/<ver>/` runtime tree (syntax, ftplugin, doc, …), `gvim` the same,
-`file` needs its compiled magic database (`magic.mgc`). unpins ships these
+`file` needs its magic database (`magic.mgc`). unpins ships these
 **inside the binary** — no companion file, no extract-on-first-run — so the
 single-binary contract holds. A separate `.tar.zst` next to the binary
-(`package_data`) still exists for the rare case embedding can't cover, but it is
-**off by default**; embedding is the norm.
+(`package_data`) still exists for the rare case embedding can't cover (today
+only `nmap`), but it is **off by default**; embedding is the norm.
 
 There are two embedding patterns, picked by how the program consumes the data.
 
 ## Pattern 1 — compiled-in blob (one file behind a load-from-buffer API)
 
 When the data is a single blob the program loads through a library call, compile
-it straight into the binary and feed the in-memory buffer to that call. Best when
-upstream already has a "load from a buffer" entry point.
+it straight into the binary (`xxd -i` emits a C array) and feed the in-memory
+buffer to that call. Best when upstream already has a "load from a buffer" entry
+point and the data is one file.
 
-`file` is the worked example (`file/flake.nix` + `file/file-embed-magic.patch`):
-
-1. Let the normal build generate `magic/magic.mgc` from the ASCII `Magdir/`
-   tables.
-2. A `postBuild` step writes a C header with
-   `xxd -n magic_mgc -i magic/magic.mgc > src/embedded_magic.h`, then relinks the
-   binary.
-3. The patch wires `file.c::load()` to feed that blob to `magic_load_buffers()`
-   when the user passed no `-m` and set no `$MAGIC`; explicit `-m` / `$MAGIC`
-   still go through `magic_load`, so power users are unaffected.
-
-The blob is embedded **raw** (not gzip): the release asset is already zstd-19
-compressed, and zstd over a pre-gzipped blob recovers almost nothing (`file`'s db
-is ~8.5 MB either way).
+No catalog package uses this today — `file`, the original worked example, moved
+its `magic.mgc` to Pattern 2 (the ZIP compresses it, and the data stops forcing
+a relink; see `file/flake.nix` + `file-vfs-magic.patch`). The pattern stays
+valid and engine-safe (a C array compiles into the bitcode module like any other
+data), unlike `.incbin` — see the ban below.
 
 ## Pattern 2 — runtime tree in the embedded ZIP + in-tool VFS (a tree opened by path)
 
@@ -38,8 +30,11 @@ ship the tree inside the binary's **single embedded ZIP** — the same
 container that carries `unpin/aliases` and `unpin/man/*`
 ([embedded-metadata.md](embedded-metadata.md)) — and add a tiny virtual
 filesystem that intercepts the program's own file calls for a marker path and
-serves them from that ZIP. The VFS core is shared
-(github:unpins/unpin-vfs, vendored per package) and runs in **self-EOF mode**
+serves them from that ZIP. The VFS core is shared — `unpins-lib.lib.vfsCore`
+points at the reader half of github:unpins/unpin-vfs, vendored once inside
+`nix-lib` and copied into each consumer's build (`cp ${lib.vfsCore}/*.c … src/`;
+nine packages use it: vim, gvim, file, perl, biber, tcc, zsh, xvfb, xvnc) —
+and runs in **self-EOF mode**
 (`-DUNPIN_VFS_SELF`): `unpin_vfs_init()` locates the running executable
 (`/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`), opens it
 read-only and reads the ZIP straight off its EOF — the absolute, file-adjusted
@@ -47,9 +42,9 @@ offsets the embed writes mean the whole file parses as one archive. No
 `.incbin`/`blob.S` section, no relink when only data changes; the `unpin/` and
 `.unpin/` namespaces are hidden from VFS lookups and listings.
 
-`vim` is the worked example (`vim/flake.nix`; vendored VFS sources `vfs.c`,
-`vfs.h`, `miniz.c`, `unpin_zstd.c` + `zstddeclib.c`, glue `unpins_init.c`). The
-build:
+`vim` is the worked example (`vim/flake.nix`; VFS sources copied from
+`lib.vfsCore` — `vfs.c`, `vfs.h`, `miniz.c`, `unpin_zstd.c` + `zstddeclib.c` —
+plus per-package glue `unpins_init.c`). The build:
 
 1. `injectVfs` copies in the VFS core + glue. `unpins_init()` is injected right
    after `mch_early_init()` in `main.c`; on Linux the libc file calls are
@@ -68,17 +63,18 @@ build:
 3. `postInstall` removes the on-disk `share/vim/vim*` — the tree now lives only
    in the binary.
 
-The VFS sources live in the package repo (copy `vim/`'s as a starting point);
-miniz is built with `-DMINIZ_NO_*` so only the inflate path is linked, plus
-`-DMINIZ_USE_ZSTD` with the vendored decompress-only `zstddeclib.c`.
+The VFS sources come from `unpins-lib.lib.vfsCore` (never copy another
+package's — they'd drift); miniz is built with `-DMINIZ_NO_*` so only the
+inflate path is linked, plus `-DMINIZ_USE_ZSTD` with the vendored
+decompress-only `zstddeclib.c`.
 
 > The runtime tree and the `unpin/*` metadata (aliases + man pages, see
 > [embedded-metadata.md](embedded-metadata.md)) share the binary's ONE
 > embedded ZIP but never mix: `unpin/*` and `.unpin/*` are unpin's namespaces,
 > read by the `unpin` CLI and hidden from the package's own VFS; everything
 > else is the runtime tree, served by the VFS and ignored by unpin's reader.
-> Every VFS package (vim, gvim, perl, biber) uses this self-EOF model; the
-> old `.incbin` blob-section variant is gone.
+> Every VFS package (vim, gvim, file, perl, biber, tcc, zsh, xvfb, xvnc) uses
+> this self-EOF model; the old `.incbin` blob-section variant is gone.
 
 **A runtime tree must use this pattern — `.incbin`/`blob.S` is banned, not
 merely retired.** An `.incbin` names a file resolved when the *assembler* runs.
@@ -95,7 +91,7 @@ the module like any other data.
 
 `package_data` is `false` by default in `mkStandaloneFlake`. Set it `true` only
 for a package that genuinely can't embed its data. action-build then attaches
-`<pkg>-<tag>-data.tar.zst` (built from `result/share/`, gated on it existing) to
+`<pkg>-<version>-data.tar.zst` (built from `result/share/`, gated on it existing) to
 the GitHub release, and `unpin install <pkg>` extracts it into the version
 directory:
 

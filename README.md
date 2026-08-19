@@ -6,7 +6,7 @@ These are the internal docs for the [unpins](https://unpins.org) workspace — t
 
 - **Contributing for the first time?** [contributing.md](contributing.md) explains which repo owns what and the conventions to follow.
 - **Adding a new package?** Walk through [adding-a-package.md](adding-a-package.md) — an end-to-end checklist from `flake.nix` scaffolding to first release.
-- **Understanding the build glue?** [architecture.md](architecture.md) covers `mkStandaloneFlake`, where per-binary quirks live (inline) vs. transitive-library fixes (`nativeFixes` + the `native-overlay` / `mingw-overlay` / `cosmo` fragments), and when to extend `nix-lib` versus keep an override inline.
+- **Understanding the build glue?** [architecture.md](architecture.md) covers `mkStandaloneFlake` (every parameter and output), the unpin-llvm engine that builds the catalog, where per-binary quirks live (inline) vs. transitive-library fixes (`nativeFixes` + the `native-overlay` / `mingw-overlay` / `cosmo` fragments), and when to extend `nix-lib` versus keep an override inline.
 - **Cutting a release?** [releasing.md](releasing.md) — tag format, the Build/Release workflow split, Cachix, common failure modes.
 
 ## Project rules
@@ -18,7 +18,7 @@ These are the internal docs for the [unpins](https://unpins.org) workspace — t
 
 Cumulative logs of gotchas, dead ends, and known fixes — so the next person doesn't re-discover them.
 
-- [platforms/mingw.md](platforms/mingw.md) — Windows cross-builds: POSIX shim gaps, the libidn2 / libpsl / libunistring / libiconv static-link chain, fake-static libraries, and the packages that don't take the mingw path (`bash` and `coreutils` ship via cosmo; `git` is a mingw WIP).
+- [platforms/mingw.md](platforms/mingw.md) — Windows cross-builds: POSIX shim gaps, the libidn2 / libpsl / libunistring / libiconv static-link chain, fake-static libraries, and the packages that don't take the mingw path (`bash`, `coreutils` and the other POSIX-bound packages ship via cosmo; `git` is parked in `playground/`).
 - [platforms/darwin.md](platforms/darwin.md) — macOS: how `pkgsStatic` behaves on darwin, the cross-within-darwin pattern, the overlay-cascade pitfall, and two abandoned approaches.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan toolchain: when to reach for it, the `cosmoStdenv` pattern, packaging mechanics, and the `ahgamut/superconfigure` reference.
 
@@ -31,7 +31,9 @@ Cumulative logs of gotchas, dead ends, and known fixes — so the next person do
 - [helper-verbs.md](helper-verbs.md) — the model for `unpin`'s verb commands: a verb is **builtin** when its renderer is small/shared (`man`, `readme` — folded in for in-process reflow) or a `unpins/unpin-<verb>` package (e.g. a future `search`) reached only via `unpin <verb>`, never on `PATH`, with the dispatch precedence and catalog naming reservation that stop the verb name from colliding with the OS or the catalog.
 - [big-packages.md](big-packages.md) — playbook for `ffmpeg`-class packages with large dependency graphs, plus the static GTK2 recipe used by `gvim`.
 - [crypto-backend.md](crypto-backend.md) — why packages swap OpenSSL for mbedtls, the platform-conditional dependency, the per-consumer selector table, and the rtmpdump exception.
-- [testing.md](testing.md) — per-package × per-OS test-suite matrix: invocation, runtime deps (msys2/brew/nixpkgs), Linux/macOS/Windows quirks, rollout order.
+- [multicall.md](multicall.md) — folding a multi-executable upstream into one dispatching binary: the declarative `multicall = { … }` mechanism, the shared dispatcher contract, and the legacy hand-fold recipes kept for the Windows fallbacks.
+- [static-linking.md](static-linking.md) — `pkgsStatic` gotchas independent of OS (propagation, `.pc`/`Requires.private`, aggressive DCE, eval blockers, musl probes).
+- [testing.md](testing.md) — what gates a release: portability verifier, smoke, the multicall applet sweep (with its negative control), and how per-package `doCheck` maps onto the native CI runners.
 
 ## Templates
 

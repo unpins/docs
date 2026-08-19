@@ -184,7 +184,7 @@ On `aarch64-darwin`, nixpkgs writes `cpu_family = 'arm64'` into the meson cross-
 
 A copy-paste install command like `curl ... unpin-$(uname -m)-darwin` lands on `unpin-arm64-darwin`, which 404s.
 
-**Don't change the CI asset naming** (keeping `aarch64` aligns with Rust target triples, the `bootstrap_naming` flag, the unpin client parser, and the Linux ARM convention). Alias at the redirect layer — `website/_redirects`:
+**Don't change the CI asset naming** (keeping `aarch64` aligns with Rust target triples, the unpin client parser, and the Linux ARM convention). Alias at the redirect layer — `website/_redirects`:
 
 ```
 /unpin-arm64-darwin  https://github.com/unpins/unpin/releases/latest/download/unpin-aarch64-darwin  302

@@ -55,7 +55,7 @@ Examples:
 
 Packages built with the Cosmopolitan toolchain (`cosmocc` 4.x — see [platforms/cosmocc.md](platforms/cosmocc.md)) produce PE binaries with an **empty import table** — they call `ntdll.dll` directly via syscall numbers. CI's `grep -iE '^lib.*\.dll$'` import check passes by omission, but `ntdll` is stable de facto since NT 4.0 and *not* in the Microsoft ABI contract.
 
-We accept this trade-off for packages whose mingw cross is infeasible because of upstream POSIX assumptions (fork/waitpid/signals). `coreutils` is the first catalog package on the cosmo path (via `coreutils/cosmo.nix` sidecar invoked from `windowsBuild`); `bash`, `dash`, `findutils`, `gawk`, `links` now also ship via this pattern. `git` remains in `playground/` until its cosmo recipe is stable.
+We accept this trade-off for packages whose mingw cross is infeasible because of upstream POSIX assumptions (fork/waitpid/signals) or wrong semantics (msvcrt `readdir` dropping non-ANSI filenames). About twenty catalog packages ship Windows via the cosmo path today — the shells (bash, dash, mksh, oksh, tcsh, zsh), coreutils, findutils, gawk, patch, rsync, links, moreutils, mtools, dosfstools, exfatprogs, e2fsprogs, telnet, whois, tree — each via a `./cosmo.nix` sidecar invoked from `windowsBuild` (or the `windowsCosmo` one-liner flag). `git` remains in `playground/`.
 
 ## Why the rule exists
 

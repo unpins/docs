@@ -1,41 +1,58 @@
-# Running upstream test-suites
+# Testing: what gates a release today
 
-The unpins release gate is **upstream tests executing against the artifact on each target OS**, not smoke (`<bin> --version`). This document is the OS-level policy: how test execution maps to each target, what's pre-installed on each environment, and the open items in the cross-OS harness.
+What actually runs against every artifact, in increasing strength. Per-package
+specifics (test command, extra deps, skip reasons) live in each package's
+`flake.nix` and README — this page is only the cross-package picture.
 
-## How test execution maps to platforms
+## The layers CI runs on every build
 
-Test execution differs by OS because the build context differs:
+1. **Portability verifier** — per-OS dynamic-link checks
+   ([dynamic-link-policy.md](dynamic-link-policy.md)): `statically linked` on
+   Linux, `otool -L` allow-list on macOS, no companion DLL / no `lib*.dll`
+   import on Windows.
+2. **Smoke** — the flake's `smoke` argv (usually `--version`) must exit 0 and
+   match `smokePattern`. Runs on every job that can execute the artifact:
+   the native jobs directly, `darwin-x86_64` via Rosetta on the arm Mac
+   runner, Windows in a separate `smoke_windows` job on a `windows-2022`
+   runner. Cross linux arches (i686, ppc64le, riscv64, armv7l) are build-only
+   in CI.
+3. **Applet sweep** (multicall packages) — every applet declared in
+   `manifest.applets_by_target` must dispatch via `--unpin-program` and the
+   announced list must match the declaration in both directions. Includes a
+   **negative control**: the binary is asked for an impossible program
+   (`--unpin-program=unpin-no-such-program`) and must refuse — that's the only
+   signal that catches a missing dispatcher, since `unpin/aliases` is written
+   from the declaration and stays green even when nothing dispatches.
 
-| OS | Build context | Test execution |
-| --- | --- | --- |
-| Linux (x86_64, aarch64) | `pkgsStatic` (musl) — native on GHA Linux runner | Inline with `nix build`, via `doCheck = true` (or `doInstallCheck` when configure phase precludes pre-install). |
-| macOS (aarch64, x86_64) | Native `pkgsStatic` on the Mac remote builder (mac on the local network, ssh as `malbarbo`). | Inline with `nix build` — same as Linux. Mac is registered as `nix.buildMachines`; the Linux runner dispatches the darwin attrs to it. |
-| Windows (x86_64) | Cross from Linux runner via `cosmocc` (or `pkgsCross.mingwW64` for a few). Test execution **cannot** run inside nix sandbox — host is Linux, binary is PE32+. | Separate `windows_tests` job in `action-build/build.yml`: scp the `.exe` plus the upstream source tarball to the Windows VM, ssh in, run `make check` inside an msys2 shell. msys2 ships PE32+ bash/make/diff/perl/python — running natively in kernel NT, not WSL. |
+## Upstream test suites (`doCheck`)
 
-**Skip recommendations are not policy** — when a suite fails, the response is to investigate (regression in our patch chain, libc-specific bug, environment dep missing), not to flip `doCheck = false`.
+The strongest layer, wired **per package** in the flake, gated on "can this
+host execute what it built":
 
-## Per-OS dep installation
+```nix
+doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
+```
 
-These tools provide the universal harness that most autotools/meson test-suites assume. Pre-install on every test environment.
+That's `true` on the three native jobs — x86_64-linux (`ubuntu-latest`),
+aarch64-linux (`ubuntu-24.04-arm`), aarch64-darwin (`macos-14`) — and `false`
+on every cross target (Windows, i686/ppc64le/riscv64/armv7l, `darwin-x86_64`).
+There is no separate test harness in action-build: the suite runs inside
+`nix build`'s check phase on those jobs.
 
-| Tool | Linux (nixpkgs / pkgsStatic) | macOS (Mac remote) | Windows (msys2 pkg) |
-| --- | --- | --- | --- |
-| bash | `bash` | `bash` (system) | `msys2-runtime`, `bash` |
-| coreutils userland (diff, cat, sort, etc.) | `coreutils` | `coreutils` (brew or our own) | `coreutils`, `diffutils` |
-| sed, grep, awk | `gnused`, `gnugrep`, `gawk` | same | `sed`, `grep`, `gawk` |
-| make | `gnumake` | `gnumake` | `make` |
-| perl | `perl` | `perl` (system 5.30+) | `perl` |
-| python3 | `python3` | `python3` | `python` |
-| timeout | (coreutils) | (coreutils) | (coreutils) |
+Adoption is incremental. Packages that have wired it include cpio, xz, ed,
+gzip, grep, sed, patch, file, brotli, dosfstools, dav1d, coreutils
+(Linux-gated); packages where the suite can't or shouldn't run carry an
+explicit `doCheck = false` with a one-line reason — the policy for when that's
+acceptable is in [releasing.md](releasing.md#native-test-suite) (runaway cost,
+static-musl incompatibility, no meaningful suite). A skip must always name its
+reason; "it failed" alone is a prompt to investigate, not to flip the flag.
 
-Per-package test command, extra deps, and quirks live in that package's `flake.nix` (`checkPhase` / `installCheckPhase` overrides and inline comments) and `README.md` ("Build notes" section). This document deliberately doesn't enumerate them — the package repo is the source of truth and is what stays in sync with the actual build.
+## What doesn't exist (deliberately, so far)
 
-## Open items to resolve while wiring
-
-- **Mac remote builder mechanics:** decide between (a) nix-darwin `nix.buildMachines` registration so `nix build .#packages.aarch64-darwin.default` from the Linux runner is offloaded, or (b) explicit `nix copy` + `ssh mac 'nix-store --realise'` orchestration. Cleaner option (a) requires the Mac to have `nix-store --serve` running.
-- **Windows test runner:** the helper `lib.runWindowsTests` (per task #4) must accept (pkgName, srcTarballAttr, exeAttr, testCmd, depsList) and emit a `windows-tests-<pkg>` derivation that lives outside the `pkgsStatic`/cosmo chain. Its build is a fixed-output derivation that nominates ssh as a builder-hostname — under the hood it `nix-build` on Linux, then runs `scp .exe + src + script | ssh win 'msys2 bash script'`. Exit code = test result.
-- **What counts as "doCheck passing":** for v1, **all** upstream tests must pass on Linux + Mac native; for Windows, accept a documented per-pkg subset (e.g. ffmpeg without `fate-paletteuse`, coreutils without `tests/cp/sparse`) where the explanation is "Windows NTFS / cosmo gnulib does not implement <X>" — these go in `docs/platforms/<os>.md` as a known-skip with line-level citation.
-
-## Why this document exists
-
-To pin down the **harness** — where tests run for each OS, what the universal deps are, and the cross-OS plumbing that's still TBD. Per-package specifics belong in each package's repo (its `flake.nix` and `README`), not here.
+- **No cross-target test execution.** Running upstream suites against the
+  Windows `.exe` (e.g. under msys2 on a Windows runner) or against the cross
+  linux arches has been sketched but not built; smoke + the applet sweep are
+  the only execution those targets get in CI. Local pre-release smoke on real
+  Windows/macOS machines is workspace infra, not part of the public pipeline.
+- **No `checks.*` flake outputs.** Tests ride the package derivation's check
+  phase, so CI needs no extra matrix entries.

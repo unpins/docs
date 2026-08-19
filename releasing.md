@@ -12,7 +12,7 @@ Run through this before dispatching the Release workflow. Goal is one quick pass
 
 ### Build all targets locally
 
-Native runners only exist for the host you have. Everything else must build via cross from a host you do have. Hash matches CI for cross-from-x86_64-linux and cross-within-darwin; differs for cross-from-x86_64-linux to aarch64-linux/armv7l-linux (those are CI-native, locally cross-only). Goal is "compiles" — bit-identity is CI's job.
+Native runners only exist for the host you have. Everything else must build via cross from a host you do have. Hash matches CI for cross-from-x86_64-linux and cross-within-darwin; differs for aarch64-linux/armv7l-linux (CI builds those from the arm runner; locally they're cross-from-x86_64 via `.#cross`). Goal is "compiles" — bit-identity is CI's job.
 
 From `x86_64-linux`:
 
@@ -25,9 +25,7 @@ nix build .#packages.x86_64-linux.default \
           --no-link --print-out-paths --impure
 ```
 
-`aarch64-linux` and `armv7l-linux` aren't exposed as cross-from-x86_64 attrs on the flake (CI does them native on `ubuntu-24.04-arm`). For local-only sanity, do it via an ad-hoc `--impure --expr` that targets `pkgsCross.aarch64-multiplatform.pkgsStatic.<pkg>` and `pkgsCross.armv7l-hf-multiplatform.pkgsStatic.<pkg>` and re-applies any consumer overrides (patches, postBuild, etc.). Not bit-identical to CI but confirms the source cross-compiles.
-
-(Note: `pkgsCross.muslpi` was the previous armv7l proxy but it actually targets armv6l — Raspberry Pi 1 / Zero. armv6 lacks hardware 64-bit atomics, so anything that touches `_Atomic uint64_t` links against `libatomic` and breaks the static-only chain. armv7l-hf-multiplatform is the right proxy: hardware float, hardware 64-bit atomics via LDREXD/STREXD, matches what CI's `ubuntu-24.04-arm` runner exercises.)
+`aarch64-linux` and `armv7l-linux` aren't exposed as `packages.x86_64-linux.*` attrs (CI reaches them from the `ubuntu-24.04-arm` runner: aarch64 native, armv7l as a cross under `aarch64-linux`). Locally, use the flake's flat `cross` output — `nix build .#cross.aarch64 .#cross.armv7l` — which cross-compiles them from x86_64 with all consumer overrides applied. Same host platform as CI but a different build host, so it's a compile/link check, not bit-identical to CI's artifact.
 
 From an Intel Mac (`x86_64-darwin`):
 
@@ -41,7 +39,7 @@ nix build .#packages.x86_64-darwin.default --no-link --print-out-paths
 
 ### Native test suite
 
-The functional smoke test (`smoke`/`smokePattern`) only proves the binary launches and prints its version. The upstream **test suite** is a much stronger check — and it *can* run, but only on a host that can execute what it built. Cross targets (Windows, i686, ppc64le, riscv64, and any cross-from-x86_64 darwin/arm) build test binaries for a foreign machine, so their `checkPhase` is skipped no matter what. The **native** jobs are different: x86_64-linux, aarch64-linux (`ubuntu-24.04-arm`), x86_64-darwin and aarch64-darwin (`macos-14`) each run on their own arch, so `make check` runs there for real.
+The functional smoke test (`smoke`/`smokePattern`) only proves the binary launches and prints its version. The upstream **test suite** is a much stronger check — and it *can* run, but only on a host that can execute what it built. Cross targets (Windows, i686, ppc64le, riscv64, armv7l, and `darwin-x86_64`) build test binaries for a foreign machine, so their `checkPhase` is skipped no matter what. The **native** jobs are different: x86_64-linux (`ubuntu-latest`), aarch64-linux (`ubuntu-24.04-arm`) and aarch64-darwin (`macos-14`) each run on their own arch, so `make check` runs there for real. (There is no x86_64-darwin runner — that artifact is a cross under `aarch64-darwin`, smoked via Rosetta but never check-phased; armv7l is a cross under `aarch64-linux`, neither checked nor smoked.)
 
 Wire it into the flake's build derivation gated on "not cross", so it runs on every native runner and auto-skips the rest:
 
@@ -50,7 +48,7 @@ Wire it into the flake's build derivation gated on "not cross", so it runs on ev
 doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
 ```
 
-`pkgsStatic` is still `build == host` for the native arch, so this is `true` on all four native jobs and `false` for every cross. **Enable it wherever the suite passes** under `pkgsStatic`-musl (and, separately, under darwin-static — the two can diverge, so gate further with `lib.optionalAttrs` / `stdenv.hostPlatform.isLinux` if only one side cooperates).
+`pkgsStatic` is still `build == host` for the native arch, so this is `true` on the three native jobs and `false` for every cross. **Enable it wherever the suite passes** under `pkgsStatic`-musl (and, separately, under darwin-static — the two can diverge, so gate further with `lib.optionalAttrs` / `stdenv.hostPlatform.isLinux` if only one side cooperates).
 
 Where it does **not** pass, or isn't worth it, leave `doCheck = false` with a one-line reason — same policy as a disabled feature. The recurring causes:
 
@@ -88,7 +86,7 @@ Packages that legitimately have no man (codec libs, `coreutils`/`busybox` withou
 
 ### CI green
 
-The Build workflow on `main` must be green across all matrix jobs before dispatching Release. CI runners cover the native paths your local box can't reach: `aarch64-linux` + `armv7l-linux` on `ubuntu-24.04-arm`, `aarch64-darwin` on `macos-14`, Windows on `windows-latest`.
+The Build workflow on `main` must be green across all matrix jobs before dispatching Release. CI runners cover the paths your local box can't reach: `aarch64-linux` native (plus the `linux-armv7l` cross) on `ubuntu-24.04-arm`, `aarch64-darwin` native (plus the `darwin-x86_64` cross) on `macos-14`, and the Windows smoke on `windows-2022`.
 
 ## Changelog and release notes
 
@@ -104,8 +102,9 @@ the filled reference.
 The cost is diluted by writing each entry **in the same commit that makes the
 change**, under a rolling `## [Unreleased]` heading. You never write a version
 header by hand: because `<pkgrel>` is computed at release time, the Release
-workflow stamps it for you — it renames `## [Unreleased]` to `## [<tag>] - <date>`,
-commits that back to `main`, then tags. The release job extracts that section and
+workflow stamps it for you — it inserts a `## [<tag>] - <date>` header beneath
+`## [Unreleased]` (which stays, empty, for the next cycle), commits that back
+to `main`, then tags. The release job extracts that section and
 uses it as the body of the GitHub release, beneath a header it composes: the
 README's opening sentence with the version spliced in after the linked name, the
 `unpin install` one-liner, and a `Built on nixpkgs <channel> (<rev>, <date>)`

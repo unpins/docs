@@ -9,7 +9,7 @@ Website: <https://unpins.org>. GitHub org: <https://github.com/unpins>.
 Each top-level directory is an **independent git repo**:
 
 - `unpin/` — Rust CLI installer.
-- `nix-lib/` — shared `mkStandaloneFlake` + cosmocc toolchain (`lib.cosmoStdenv`; wires `pkgs.pkgsCross.cosmo` as a first-class cross target inside `windowsPkgs`) + cross overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`). Per-binary quirks live inline in each consumer flake.
+- `nix-lib/` — shared `mkStandaloneFlake` + the unpin-llvm engine (the clang/LLVM bitcode toolchain the catalog builds with, plus its multicall/mega-fold machinery) + cosmocc toolchain (`lib.cosmoStdenv`; wires `pkgs.pkgsCross.cosmo` as a first-class cross target inside `windowsPkgs`) + cross overlay fragments (`native-overlay/`, `mingw-overlay/`, `cosmo/`). Per-binary quirks live inline in each consumer flake.
 - One directory per package flake (e.g. `htop/`, `tree/`) — the [packages page](https://unpins.org/packages.html) has the current catalog.
 - `action-build/` — reusable GitHub Actions workflows.
 - `website/` — site source.
@@ -44,17 +44,17 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [contributing.md](contributing.md) — where contributions go (multi-repo), conventions, commit trailer.
 - [adding-a-package.md](adding-a-package.md) — checklist when scaffolding a new package.
 - [releasing.md](releasing.md) — release flow, tag format, common failure modes.
-- [architecture.md](architecture.md) — `mkStandaloneFlake`, where per-binary quirks live (inline) vs. transitive-lib overlay fragments (`nix-lib/{native,mingw}-overlay/`, `nix-lib/cosmo/`), `nix-lib` scope rule, refactor verification.
+- [architecture.md](architecture.md) — `mkStandaloneFlake` (all parameters/outputs), the unpin-llvm engine, where per-binary quirks live (inline) vs. transitive-lib overlay fragments (`nix-lib/{native,mingw}-overlay/`, `nix-lib/cosmo/`), `nix-lib` scope rule, refactor verification.
 - [dynamic-link-policy.md](dynamic-link-policy.md) — what each OS may load dynamically.
 - [messaging.md](messaging.md) — source of truth for external copy: slogan, the canonical project/package sentences, vocabulary (`programs` not `tools`; `self-contained` not `static`), per-surface hero emphasis.
 - [static-linking.md](static-linking.md) — `pkgsStatic` gotchas independent of OS (propagation, `.pc`/`Requires.private`, aggressive DCE, eval blockers, musl probes).
-- [runtime-data.md](runtime-data.md) — runtime data is embedded by default (vim/gvim ZIP+VFS, file compiled-in blob); the `package_data` companion archive is the opt-in fallback.
+- [runtime-data.md](runtime-data.md) — runtime data is embedded by default (self-EOF ZIP + the shared `lib.vfsCore` VFS: vim, gvim, file, …); the `package_data` companion archive is the opt-in fallback (nmap only).
 - [embedded-metadata.md](embedded-metadata.md) — the unified `unpin/` ZIP container embedded in every binary (aliases + man), byte-scan locator, `withAliases`/`withMan` glue, alias security model.
 - [embedded-man.md](embedded-man.md) — `unpin man` is a **builtin** that renders embedded roff in-process via the `mandoc-sys` crate (vendored render-only mandoc, linked), paged by `unpin/src/render/`.
 - [helper-verbs.md](helper-verbs.md) — the model for `unpin man`/`readme`/`search`/… : a verb is **builtin** when its renderer is small/shared (man, readme — folded back in for in-process reflow) or shipped as an `unpins/unpin-<verb>` package (e.g. a future `search`) reached only via `unpin <verb>`, never on `PATH`; dispatch precedence and the catalog naming reservation that keep the verb name from colliding with the OS or the catalog.
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
-- [multicall.md](multicall.md) — folding many upstream executables into one `argv[0]`-dispatching binary (`ld -r` and reuse-the-link-line recipes).
-- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, mingw blockers (bash/coreutils ship via cosmo; git is a mingw WIP).
+- [multicall.md](multicall.md) — folding many upstream executables into one dispatching binary: the declarative `multicall = { … }` engine self-fold, the shared dispatcher contract, legacy hand-fold recipes for the Windows fallbacks.
+- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, mingw blockers (bash/coreutils and the other POSIX-bound packages ship via cosmo; git is parked in playground/).
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + first-class `pkgs.pkgsCross.cosmo` (wired via `applyPatches` + `replaceCrossStdenv` in `windowsPkgs`).
 - [big-packages.md](big-packages.md) — ffmpeg-class playbook; static GTK2 recipe.

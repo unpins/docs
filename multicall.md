@@ -1,6 +1,22 @@
 # Multicall binaries
 
-When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shadow`, `busybox`, `coreutils`, `srt`, `librist`), the one-pkg-one-bin rule means we fold them into a **single multicall binary**. It dispatches two ways, the **unified contract** across the whole catalog:
+When an upstream ships **several executables** (`e2fsprogs`, `util-linux`, `shadow`, `busybox`, `coreutils`, `srt`, `librist`), the one-pkg-one-bin rule means we fold them into a **single multicall binary**.
+
+## How a package folds today: declare, don't hand-roll
+
+The fold is done by the [unpin-llvm engine](architecture.md#the-unpin-llvm-engine): the flake declares its programs and the engine self-folds them —
+
+```nix
+engine = "unpin-llvm";
+multicall = {
+  programs = [ { name = "mkfs.ext4"; } { name = "tune2fs"; } … ];
+  # defaultProgram?, depArchives?, windows = true for the mingw .exe, …
+};
+```
+
+That is the whole per-package mechanism (~85 flakes use it). The hand-written `./multicall.nix` recipes this page used to center on are **retired**; the three survivors (`unzip`, `usbutils`, `zip`) are Windows-only fallbacks for folds the engine's bitcode path can't do there. Recipes A and B below are kept as reference for those fallbacks and for any future non-engine context — read them only when you're outside the engine.
+
+What every fold shares — engine or not — is the **dispatch contract** and the shared dispatcher generator, described next. It dispatches two ways, the **unified contract** across the whole catalog:
 
 - **`argv[0]`** — invoked under an applet name (the canonical binary's basename is *not* that applet), it runs that applet. `lib.withAliases` embeds the applet names as the `unpin/aliases` entry in the binary's embedded `unpin/` ZIP (see [embedded-metadata.md](embedded-metadata.md)) so `unpin install` recreates these shims (symlinks on Linux/macOS, NTFS hardlinks on Windows). An alias is **locked to its argv[0] identity**: it ignores `--unpin-program` (below), so `ls --unpin-program=rm` runs `ls`, never `rm`.
 - **`--unpin-program=NAME`** as the *first argument* of the bare/canonical binary selects an applet explicitly (coreutils' `--coreutils-prog=` convention, generalized). This is the **only** bare-binary selector — there is no positional `<pkg> <applet>` form — so a canonical name that is itself an applet (`zip`, `bzip2`) is never ambiguous with one of its siblings (`zip --unpin-program=zipnote` unmistakably runs `zipnote`).
@@ -132,13 +148,20 @@ The `ld -r` family (`e2fsprogs`, `util-linux`, `shadow`, `findutils`,
 `src_ps_pscommand`, findutils' `find`. A renamed binary (CI's `smoke.exe`)
 selects its applet with `smoke.exe --unpin-program=<applet>`.
 
-Callers inside `nix-lib` — `cppRenameMulticall` and `mkMegaMulticall` — write
-the TSV themselves from their program/alias lists; only the bespoke
-`<pkg>/multicall.nix` recipes write it by hand.
+Callers inside `nix-lib` — the engine self-fold, `cppRenameMulticall` and
+`mkMegaMulticall` — write the TSV themselves from their program/alias lists;
+only the surviving bespoke `<pkg>/multicall.nix` fallbacks write it by hand.
 
-Two recipes, by how the upstream builds the programs.
+## Legacy hand-fold recipes (Windows fallbacks / non-engine reference)
 
-## Recipe A — `ld -r` relocatable merge (autotools/Make upstreams)
+Two recipes, by how the upstream builds the programs. **Neither is how a
+catalog package folds anymore** — the engine self-fold replaced them (the
+`ld -r`/`objcopy` merge is also ELF-only, one of the reasons it died). They
+remain the mechanism behind the three Windows fallback `multicall.nix` files
+and are worth knowing when debugging an old fold or building outside the
+engine.
+
+### Recipe A — `ld -r` relocatable merge (autotools/Make upstreams)
 
 For `e2fsprogs` / `util-linux` / `shadow` / `busybox`, where the programs are built from object files in a Make tree. Partially link each program's objects into one relocatable object, prefix-rename its symbols so siblings don't collide, then archive all of them and link once with a dispatcher.
 
@@ -161,9 +184,9 @@ Landmines (each cost real time — see auto-memory `feedback_post_link_multicall
 7. **`llvm-objcopy` `--redefine-sym` is a no-op on Mach-O `DATA`/`BSS` symbols.** For the whole-program-localize variant on Mach-O, use `ld -r -exported_symbols_list` instead of `--localize-symbol`.
 8. **automake emits `PROGRAMS` before `am__EXEEXT_N`.** Resolve `$(am__EXEEXT_N)` references in an `END {}` block, not inline (shadow's Makefile).
 
-Reference: `unpins/e2fsprogs`, `unpins/util-linux`, `unpins/shadow`, `unpins/busybox`.
+Historical users: `e2fsprogs`, `util-linux`, `shadow`, `findutils`, `procps-ng` — all folded by the engine today; their flakes' comments record why the `ld -r` path died there (it can't run on `-flto` bitcode objects).
 
-## Recipe B — reuse the build system's resolved link line (CMake/meson upstreams)
+### Recipe B — reuse the build system's resolved link line (CMake/meson upstreams)
 
 For `srt` (CMake/C++) and `librist` (meson/C), where the upstream already produces fully-linked app executables. Don't reconstruct the link by hand — **reuse the exact link line the build system resolved** (correct compiler, flags, library group, per-target deps), splice in the other apps' objects + a dispatcher, and **iteratively** relink, renaming whatever the linker reports as a duplicate.
 
@@ -187,7 +210,7 @@ Then:
 
 The dispatcher is a tiny C file implementing the unified contract: `basename(argv[0])` (with `.exe` stripped and `\\` handled on Windows) → the matching `<app>_main` on the alias path, plus a `<pkg> --unpin-program=<applet> [args]` selector so the bare binary stays callable (no positional form).
 
-Reference: `unpins/srt/multicall.nix` (CMake/C++), `unpins/librist/multicall.nix` (meson/C), `unpins/avif` + `unpins/jxl` + `unpins/aom` (CMake image/video codec CLIs — `aom` adds the app-provided-hook localize and OBJECT-lib splice; `jxl` the subdir-build link.txt and mingw `std::thread` fold), `unpins/heif` (heaviest C++ chain — mingw lld for the combined link + darwin libc++ symbol unexport). All invoked as `import ./multicall.nix { lib = pkgs.lib // unpins-lib.lib; } { ... }` from the consumer flake.
+Historical users: `srt` (CMake/C++), `librist` (meson/C), `avif` + `jxl` + `aom` (CMake codec CLIs — `aom` added the app-provided-hook localize and OBJECT-lib splice; `jxl` the subdir-build link.txt and mingw `std::thread` fold), `heif` (heaviest C++ chain — mingw lld for the combined link + darwin libc++ symbol unexport). All since migrated to the engine self-fold; the platform gotchas the migrations surfaced live on in [platforms/mingw.md](platforms/mingw.md) / [platforms/darwin.md](platforms/darwin.md).
 
 ## Symbol-collision tool choice
 
