@@ -73,7 +73,7 @@ The argument set is closed — an unknown top-level argument (or an unknown key 
 | Argument | Default | Purpose |
 | -------- | ------- | ------- |
 | `engine` | `"default"` | `"unpin-llvm"` builds the whole static closure with the project's clang/LLVM bitcode toolchain instead of nixpkgs' gcc stdenv — the catalog default in practice (everything but the Rust packages). Applies to linux (native + every cross arch) and native darwin. |
-| `multicall` | `null` | Declares the package's programs for the engine self-fold: `{ programs = [ { name; aliases?; objs?; … } ]; defaultProgram?; depArchives?; windows?; … }`. One binary dispatches every declared program; also emits the bitcode `multicallModule` the mega fold consumes. See [multicall.md](multicall.md). |
+| `multicall` | `null` | Declares the package's programs for the engine self-fold: `{ programs = [ { name; aliases?; objs?; … } ]; defaultProgram?; depArchives?; windows?; windowsTable?; … }`. One binary dispatches every declared program; also emits the bitcode `multicallModule` the mega fold consumes. `windowsTable` is what a **bespoke** `windowsBuild` folds, as a `lib.multicallTable` — nothing in eval can look inside that build, so the flake declares it and CI checks the `.exe` against it. See [multicall.md](multicall.md). |
 | `multicallCosmo` | `null` | Cosmo-side multicall spec for packages whose Windows build is cosmo (bash, coreutils). Mutually exclusive with the mingw module path. |
 | `optimize` | `{ }` | `{ lto?, opt?, ssp?, gc? }` knobs for the **default** (non-engine) stdenv. Under `engine = "unpin-llvm"` the `lto`/`gc` knobs are silent no-ops — the engine toolchain owns those decisions. |
 | `runtimeEmbed` | `null` | `{ native?, windows? }` hooks for embedding a runtime tree in the binary's self-EOF ZIP (see [runtime-data.md](runtime-data.md)). |
@@ -118,7 +118,7 @@ Per-binary quirks are **inline in the consumer flake**, not in `nix-lib`:
 - **native + mingw**: `build = pkgs: ...` / `windowsBuild = pkgs: ...` closures inside `flake.nix`.
 - **cosmocc**: a `./cosmo.nix` sidecar file invoked via `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }`. The sidecar receives `pkgs` and calls `unpins-lib.lib.cosmoStaticCross pkgs` to construct the cosmo cross set. Lives in its own file because cosmo recipes typically need `cs = import "${unpins-lib.outPath}/cosmocc.nix" { pkgs = pkgs.buildPackages; }` for `apelink` access plus a non-trivial postFixup.
 
-Multicall packages declare their programs via the `multicall = { … }` argument — the engine folds them ([see above](#the-unpin-llvm-engine)). The old hand-written `./multicall.nix` sibling files are retired; the three that remain (`unzip`, `usbutils`, `zip`) are Windows-only fallbacks for folds the engine's bitcode path can't do there.
+Multicall packages declare their programs via the `multicall = { … }` argument — the engine folds them ([see above](#the-unpin-llvm-engine)). The old hand-written `./multicall.nix` sibling files are retired; the ones that remain (`unzip`, `usbutils`, `zip`, plus `diffutils/windows.nix`, `e2fsprogs`+`findutils`+`moreutils`'s `cosmo.nix`, `procps-ng/portable.nix`) are Windows-only fallbacks for folds the engine's bitcode path can't do there. Each renders its table with `lib.multicallTable` and declares the same value as `multicall.windowsTable`.
 
 `nix-lib` retains three directories of **transitive lib-dep fixes** — quirks that one consumer would otherwise have to re-apply to every other consumer's transitive closure. All three are auto-discovered via `readDir`:
 

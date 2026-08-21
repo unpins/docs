@@ -65,7 +65,8 @@ double every shell's tab-completion list):
 
 2. **A multicall rejects `ls.exe`.** A multicall dispatches on `argv[0]`; an
    alias invoked as `ls.exe` (or with a `\\` path) must map to applet `ls`. The
-   shared dispatcher generator `lib.multicallTableDispatcherC`
+   shared table + dispatcher generator (`lib.multicallTable`, whose `emit`
+   writes both `applets.list` and `dispatcher.c`)
    already strips a trailing `.exe`/`.com` and a `\\` dir prefix (`copy_basename`
    in nix-lib), so every Windows multicall built through it
    (`e2fsprogs`/`findutils`/`procps-ng`/`srt`/`librist`/…) is already correct.

@@ -23,24 +23,70 @@ What every fold shares — engine or not — is the **dispatch contract** and th
 
 This is distinct from the *whole-program-as-a-library* embed (e.g. dash inside git) in [patches.md](patches.md#symbol-collisions-when-linking-a-whole-program-as-a-library) — there the goal is to hide every symbol but one; here every program keeps its own entry point and the programs are peers.
 
-## The dispatcher front-end (`lib.multicallTableDispatcherC`)
+## The applet table (`lib.multicallTable`)
 
-Both recipes end the same way: a tiny C `main` implementing the unified dispatch
-contract. That front-end is **shared** — generate it with
-`lib.multicallTableDispatcherC`, don't hand-copy it (the per-package copies had
-drifted into a dozen subtly different dialects). It emits
-`multicall/dispatcher.c`. There is exactly **one** generator: an earlier
-`lib.multicallDispatcherC` taking a flat one-name-per-line list was folded into
-this one, whose table is a superset (a flat list is the TSV with both columns
-equal). Consumers still build a `multicall/apps.list` for their *own* loops —
-the generator does not read it.
+A bespoke `windowsBuild` folds a table only its own flake knows, and that table
+has **four** consumers: the `applets.list` the generator reads, the
+`defaultApplet` that decides the bare invocation, the alias list `withAliases`
+embeds, and `manifest.applets_by_target` — the only rendering CI gets to read.
+Declare it **once**:
 
 ```nix
-# In the consumer's postBuild, AFTER writing multicall/applets.list:
-#   for a in $apps; do printf '%s\t%s\n' "$a" "$(echo "$a" | tr -c 'A-Za-z0-9_' '_')"; \
-#   done > multicall/applets.list
+# flake.nix
+winTable = lib.multicallTable {
+  name = "unzip";                       # what the binary is called
+  applets = [                           # the WHOLE dispatch table
+    { name = "unzip"; }
+    { name = "funzip"; }
+    { name = "zipinfo"; fn = "unzip"; } # an alias is a row at another row's fn
+  ];
+};
+```
+
+and render it from there:
+
+| field | consumer |
+| --- | --- |
+| `emit { windows ? false }` | the generator's whole shell side — writes `multicall/applets.list` *and* `multicall/dispatcher.c` |
+| `announced` | `lib.withAliases { aliases = winTable.announced; }` |
+| `declaration` | `multicall.windowsTable = winTable;` → `manifest.applets_by_target."windows-x86_64"` |
+| `defaultApplet` | applied by `emit`; see the naming rule below |
+
+Two shorthands cover the usual cases. `lib.multicallTableOf { name; programs; }`
+takes a `multicall.programs` list — a program is a row, each of its aliases
+another row at that program — so a windows fold that dispatches exactly what its
+native half does reads the **same list** instead of a second copy of it.
+`lib.cppRenameTable spec` does the same for a `lib.cppRenameMulticall` spec, and
+is a pure function of it, so the flake can declare what its `.exe` dispatches
+without instantiating the cross set to ask. A fold that ships a genuine subset
+(`usbutils` drops `usbhid-dump`, `moreutils` drops `ifdata`, `procps-ng` keeps
+three of fifteen) writes its own `applets` list — the subset is the point there.
+
+**Why `windowsTable` is not optional.** Left undeclared, `applets_by_target`
+reports `dispatcher = false` for a target nix-lib really does fold, and CI reads
+that as "nothing to check" — switching off the negative control, the one check
+that can see a missing dispatcher. procps-ng hand-rolled a dispatcher that never
+learned `--unpin-program=`, so the selector reached the applet as an argument and
+every unknown name fell through to `watch`; it was green for as long as it
+existed, because nothing was allowed to look.
+
+## The dispatcher front-end (`lib.multicallTableDispatcherC`)
+
+Under `multicallTable.emit` sits the C generator. It is **shared** — don't
+hand-copy it (the per-package copies had drifted into a dozen subtly different
+dialects) — and it emits `multicall/dispatcher.c` from `multicall/applets.list`.
+There is exactly **one** generator: an earlier `lib.multicallDispatcherC` taking
+a flat one-name-per-line list was folded into this one, whose table is a superset
+(a flat list is the TSV with both columns equal). Consumers still build a
+`multicall/apps.list` for their *own* loops — the generator does not read it.
+
+Call it directly only where there is no table to declare (nix-lib's own
+`mkMegaMulticall`); a package uses `winTable.emit` instead, which writes both
+files together so a caller cannot write one and forget the other.
+
+```nix
 # Invoke at COLUMN 0 (heredoc `CBODY` terminators must reach the shell at col 0):
-${lib.multicallTableDispatcherC { inherit name; }}
+${winTable.emit { }}
 $CC -O2 -c -o multicall/dispatcher.o multicall/dispatcher.c
 ```
 
@@ -53,9 +99,10 @@ per package):
   `e2label`/`findfs` → `tune2fs_main` — so the symbol cannot be derived from the
   applet name. Aliases are extra rows at the same `<fn-base>`.
 - **Symbol naming**: the C symbol is `<fn-base>_main`, taken verbatim from the
-  second column. Sanitise when you *write* the row — `tr -c 'A-Za-z0-9_' '_'` —
-  so a hyphenated applet (`srt-live-transmit`, `heif-enc`) still names a legal
-  identifier (`srt_live_transmit_main`, `heif_enc_main`). Your per-tool
+  second column. `lib.multicallTable` sanitises the row as it writes it, so a
+  hyphenated or dotted applet (`srt-live-transmit`, `fsck.ext2`) still names a
+  legal identifier (`srt_live_transmit_main`, `e2fsck_main`); a caller writing
+  the TSV by hand must do the same with `tr -c 'A-Za-z0-9_' '_'`. Your per-tool
   `objcopy --redefine-sym main=<sym>_main` rename **must** produce that same
   symbol (plain tools need no sanitiser; `srt`/`librist`/`heif` already rename to
   the sanitised form).
@@ -114,7 +161,13 @@ binary is unambiguous: `zip --unpin-program=zipnote` runs `zipnote`.
 
 Three parameters total: `name`, the optional `defaultApplet`, and the optional
 `windows` above. Everything that used to vary per package (list source,
-sanitiser, fallback style) is now fixed.
+sanitiser, fallback style) is now fixed — and `defaultApplet` is not something a
+package decides either: `lib.multicallTable` derives it from the naming rule
+(`defaultProgram`, defaulting to the binary's own name, resolves only if that
+name is itself a program), the same rule `mkStandaloneFlake`'s `selfFoldDefault`
+applies to the native half. mtools is what a second spelling costs: its windows
+fold passed a hardcoded `null`, so a bare `mtools.exe` listed while a bare
+`mtools` ran mtools.
 
 **One documented exception** that intentionally keeps a hand-written dispatcher —
 the only genuine divergence the generator does not model:
@@ -142,10 +195,9 @@ directory prefix on `/` *and* on `\\` (unconditional — a cosmo APE's argv[0] c
 carry a backslash and `_WIN32` is not defined for cosmo), a trailing `.exe`, and
 a libtool `lt-` prefix.
 
-The `ld -r` family (`e2fsprogs`, `util-linux`, `shadow`, `findutils`,
-`procps-ng`) is what the many-to-one table was built for, and it also uses the
-`<fn-base>` spelling of `defaultApplet` most visibly — procps-ng's
-`src_ps_pscommand`, findutils' `find`. A renamed binary (CI's `smoke.exe`)
+The `ld -r` family (`e2fsprogs`, `util-linux`, `shadow`, `findutils`) is what
+the many-to-one table was built for — e2fsprogs' thirteen names over four
+programs is the case it exists to describe. A renamed binary (CI's `smoke.exe`)
 selects its applet with `smoke.exe --unpin-program=<applet>`.
 
 Callers inside `nix-lib` — the engine self-fold, `cppRenameMulticall` and
