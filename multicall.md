@@ -62,6 +62,15 @@ without instantiating the cross set to ask. A fold that ships a genuine subset
 (`usbutils` drops `usbhid-dump`, `moreutils` drops `ifdata`, `procps-ng` keeps
 three of fifteen) writes its own `applets` list — the subset is the point there.
 
+**What `announced` contains.** The whole table, the binary's own name included:
+builder and installer then read one list instead of two that differ by exactly
+that name, and `unpin install` is what drops the entry whose slot the binary
+itself already took. The one exception is a table of a single row that *is* the
+binary — a package like `tree`, which folds nothing. That is no table at all:
+declaring it would switch off the embed wrap's symlink harvest (the mechanism
+for the packages nix-lib cannot enumerate) and make CI sweep a dispatcher that
+does not exist, so `announced` there is empty.
+
 **Why `windowsTable` is not optional.** Left undeclared, `applets_by_target`
 reports `dispatcher = false` for a target nix-lib really does fold, and CI reads
 that as "nothing to check" — switching off the negative control, the one check
@@ -168,6 +177,13 @@ name is itself a program), the same rule `mkStandaloneFlake`'s `selfFoldDefault`
 applies to the native half. mtools is what a second spelling costs: its windows
 fold passed a hardcoded `null`, so a bare `mtools.exe` listed while a bare
 `mtools` ran mtools.
+
+nix-lib checks the two halves against each other and refuses to evaluate when
+they disagree, **in both directions** — a flake that sets `multicall.defaultProgram`
+and forgets its `windowsTable` is the case that first appeared, and a table that
+sets its own while the flake sets none is the same drift mirrored. For a
+cpp-rename fold the answer to either is a `defaultProgram` in the
+`cppRenameMulticall` spec: it reaches the fold and its table from the one place.
 
 **One documented exception** that intentionally keeps a hand-written dispatcher —
 the only genuine divergence the generator does not model:
