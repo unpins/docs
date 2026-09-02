@@ -23,6 +23,7 @@ multicall = {
 | `aliases` | extra argv[0] names for the same program; a bare string, or `{ name; supportedTarget; }` |
 | `supportedTarget` | `platform -> bool`; drops the program (or the alias) on targets where it isn't built or doesn't work |
 | `noHelp` | the applet never answers `--help` (a server that starts serving); CI still requires it to be dispatchable |
+| `noMan` | upstream documents this name **nowhere**; waives it from the announced-vs-page check below. Also settable on an alias |
 | `objs` / `buildDir` | hand-listed objects instead of the capture sidecar; listing `objs` turns inference off for that one program |
 
 `linkName` exists because the engine finds a program's objects through a
@@ -46,6 +47,43 @@ Declaring `linkName` where no sidecar is read (`objs` listed, or
 `inferLinkInputs = false`) is a hard eval error rather than a silent no-op: it
 reads as an assertion about how the program links, and a knob that asserts
 without doing anything is what produced the leak above.
+
+### Every announced name needs a man page
+
+CI's applet sweep requires a `unpin/man/<name>.<section>` entry for every
+announced name, on **every target it sweeps**. A name the user can run and
+cannot read about is a half-shipped program, and it fails quietly: `unpin man
+<pkg> <name>` finds nothing and the program listing shows the name with an
+empty description. Per-target because that is the shape the real defects took
+— binutils' `.exe` once shipped all 18 pages under `x86_64-w64-mingw32-*` so
+not one announced name resolved, dosfstools' `.exe` missed 7 of 10, lz4's 2 of
+3, procps-ng shipped no `pkill.1`. Every one of those is a page that **exists
+on another target**.
+
+Where a name genuinely has no page, say so in the flake — two declarations,
+because the catalog has two situations and one rule for both is wrong:
+
+```nix
+# upstream documents this name nowhere: binutils-2.46 has no ld.gold.1
+{ name = "ld.gold"; linkName = "ld-gold"; noMan = true; }
+aliases = [ { name = "egrep"; noMan = true; } ];
+
+# ONE page documents every applet (top-level, not under `multicall`)
+manPage = "busybox";
+```
+
+`noMan` is a **waiver, not a claim of absence**: the sweep also fails a waived
+name that *does* carry a page on the target being swept, so a stale waiver
+cannot quietly hide the per-target class above. `manPage` is checkable in the
+same spirit — the sweep requires that page to be embedded, so busybox's 396
+applets ride one declaration and fail together if it disappears, instead of
+needing 396 waivers.
+
+Before waiving, check the **build tree**, not just the payload: the page may
+exist under another name (`Xvnc.1` for the announced `xvnc`, `tar.1` for
+`bsdtar`), in another output (vim's `xxd.1` lives in `vim.xxd`), or be a `.so`
+stub upstream forgot to install while installing its siblings (`zstdmt.1`,
+`pkill.1`). Those are repairs, not exceptions.
 
 That is the whole per-package mechanism (~85 flakes use it). The hand-written `./multicall.nix` recipes this page used to center on are **retired**; the three survivors (`unzip`, `usbutils`, `zip`) are Windows-only fallbacks for folds the engine's bitcode path can't do there. Recipes A and B below are kept as reference for those fallbacks and for any future non-engine context — read them only when you're outside the engine.
 
