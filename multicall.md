@@ -14,6 +14,39 @@ multicall = {
 };
 ```
 
+### Per-program options
+
+| option | meaning |
+| --- | --- |
+| `name` | **the applet name** — what the user types, what `unpin/aliases` announces, what `unpin install` gives a slot |
+| `linkName` | the program's name **in the build tree** (default: `name`) |
+| `aliases` | extra argv[0] names for the same program; a bare string, or `{ name; supportedTarget; }` |
+| `supportedTarget` | `platform -> bool`; drops the program (or the alias) on targets where it isn't built or doesn't work |
+| `noHelp` | the applet never answers `--help` (a server that starts serving); CI still requires it to be dispatchable |
+| `objs` / `buildDir` | hand-listed objects instead of the capture sidecar; listing `objs` turns inference off for that one program |
+
+`linkName` exists because the engine finds a program's objects through a
+**capture sidecar** the link-capture shim writes under the basename of the
+linker's `-o`, and upstreams routinely link a tool under a name they do not
+install it as: binutils links `nm-new` and installs `nm`, procps-ng links
+`src/ps/pscommand` and installs `ps`. That spelling has to be written down
+somewhere, and while `name` was the only place, it was written where the
+*applet* name goes — so `nm-new` and `pscommand` were announced to users and
+`unpin install binutils` created an `nm-new` shim in `PATH` for a name that
+exists nowhere outside the build tree. Put the build-tree spelling in
+`linkName` and everything else (`announced`, the dispatch table, the entry
+symbol) follows `name` and is right for free:
+
+```nix
+{ name = "nm"; linkName = "nm-new"; }
+{ name = "ld"; linkName = "ld-new"; aliases = [ "ld.bfd" ]; }
+```
+
+Declaring `linkName` where no sidecar is read (`objs` listed, or
+`inferLinkInputs = false`) is a hard eval error rather than a silent no-op: it
+reads as an assertion about how the program links, and a knob that asserts
+without doing anything is what produced the leak above.
+
 That is the whole per-package mechanism (~85 flakes use it). The hand-written `./multicall.nix` recipes this page used to center on are **retired**; the three survivors (`unzip`, `usbutils`, `zip`) are Windows-only fallbacks for folds the engine's bitcode path can't do there. Recipes A and B below are kept as reference for those fallbacks and for any future non-engine context — read them only when you're outside the engine.
 
 What every fold shares — engine or not — is the **dispatch contract** and the shared dispatcher generator, described next. It dispatches two ways, the **unified contract** across the whole catalog:
