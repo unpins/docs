@@ -96,6 +96,21 @@ A whole-page `.so` (`vigr.8` → `.so man8/vipw.8`) is a ZIP **symlink** entry
 mandoc to source from, so it only warns. Irrelevant in practice: catalog man is
 generated (help2man / asciidoctor) and only ever emits whole-page redirects.
 
+### Two page names that differ only in case
+
+Don't ship a pair like `Xvnc.1` and `xvnc.1`. **The macOS store volume folds
+case**, so on a darwin build the two are one file and the second write destroys
+the first — silently, wherever the man tree is assembled, which is upstream of
+`mkmeta.py`. `mkmeta.py` refuses both halves of it: a `.so` page whose target is
+its own entry (what the fold leaves behind), and a case-differing pair with
+different content (what a case-sensitive host still sees). Identical content is
+kept as-is — openssl ships 9 byte-identical pairs in `man3`, and those cost
+nothing but a name that macOS cannot spell.
+
+When one of the two names is ours (a compat symlink, an alias) the fix is not a
+`.so` stub: declare the name covered by the real page with top-level `manPage`,
+which the CI applet sweep then checks. See [multicall.md](multicall.md).
+
 ## The `mandoc-sys` crate (`unpins/mandoc-sys`)
 
 The renderer is the `mandoc-sys` crate: a vendored, render-only subset of mandoc
