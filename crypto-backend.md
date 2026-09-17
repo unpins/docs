@@ -10,10 +10,11 @@ default, not a per-package judgement call.
   (every provider + the post-quantum ML-DSA/SLH-DSA code), while
   `mbedcrypto.a` is ~500 KB. `nettle` (~200 KB) is also viable when a
   package supports it.
-- **No double crypto.** Catalog packages that already carry mbedtls —
-  `ffmpeg` enables it directly — would otherwise drag a *second*,
-  redundant crypto closure through a dependency that defaults to OpenSSL.
-  Keeping everyone on mbedtls means one crypto provider per binary.
+- **No double crypto.** A package that already carries one crypto library
+  would otherwise drag a *second*, redundant one through a dependency that
+  defaults to something else. One crypto provider per binary, whichever
+  it is — `ffmpeg` is on OpenSSL (see the exception below), so its
+  dependencies follow it there.
 - **Single-binary policy.** Smaller, single-provider closures are easier
   to keep fully static and within the [dynamic-link
   policy](dynamic-link-policy.md).
@@ -60,8 +61,7 @@ consumer flake — this table is the index.
 | Package | Selector | Overlay / flake |
 | --- | --- | --- |
 | `tar` (libarchive) | `--without-openssl --with-mbedtls` | `tar/flake.nix` |
-| `srt` | `-DUSE_ENCLIB=mbedtls` | `nix-lib/native-overlay/srt.nix` |
-| `libssh` | `-DWITH_MBEDTLS=ON` | `nix-lib/native-overlay/libssh.nix` |
+| `srt` | `-DUSE_ENCLIB=mbedtls` (`.withOpenssl` keeps OpenSSL, for ffmpeg) | `nix-lib/native-overlay/srt.nix` |
 | `librist` | upstream defaults to `mbedcrypto` | `nix-lib/native-overlay/librist.nix` |
 
 ### The `.pc` tail that recurs with this swap
@@ -79,14 +79,36 @@ Swapping to a static mbedtls almost always exposes one of two
   (`libssh`); or propagate the dep so the public `Requires:` traversal
   resolves (`librist`).
 
+## Exception: ffmpeg uses OpenSSL
+
+FFmpeg's TLS verification (`-tls_verify 1`) needs CA roots. Its mbedtls
+backend reads only an explicit `-ca_file`, so with mbedtls verification
+rejected every server unless the user found and passed a bundle. Its
+OpenSSL backend loads OpenSSL's default verify paths, which
+`lib.retargetOpenssl` points at the host's bundle, with Mozilla's roots
+embedded as the fallback (and always used on Windows). So `ffmpeg` builds
+`--enable-openssl` (OpenSSL 3 needs `--enable-version3`, which it already
+passes), and its crypto dependencies follow it:
+
+- `srt` uses `nativeFixes.srt.withOpenssl`;
+- `libssh` (ffmpeg is its only consumer) is on OpenSSL with
+  `-DWITH_NACL=OFF`, since OpenSSL already covers curve25519 and ed25519
+  — `nix-lib/native-overlay/libssh.nix`;
+- `librist` stays on `mbedcrypto`: it has no OpenSSL backend, and its
+  built-in AES alternative drops SRP authentication. That is the one
+  second crypto library in the binary.
+
+The native engine scopes get `retargetOpenssl` from nix-lib; the mingw
+scope does not, so `ffmpeg`'s `windowsBuild` applies it with `C:/ssl`.
+
 ## Exception: rtmpdump keeps OpenSSL
 
 `rtmpdump` only offers OpenSSL / GnuTLS / PolarSSL backends — PolarSSL is
 the *pre-3.x* mbedtls, incompatible with nixpkgs' mbedtls 3.x — so there is
 no mbedtls path. The standalone `unpins/rtmpdump` therefore keeps
 `CRYPTO=OPENSSL` (the working full-feature option for `rtmpe://` /
-`rtmpte://`). It does **not** double up inside ffmpeg: ffmpeg drops
-`--enable-librtmp` and uses its *native* rtmp/rtmpe/rtmps protocols, which
-do crypto via the mbedtls ffmpeg already links (`rtmpdh.c`
-`CONFIG_MBEDTLS`). librtmp would only add a dep and subtract working
+`rtmpte://`). ffmpeg does not use librtmp either: it drops
+`--enable-librtmp` for its *native* rtmp/rtmpe/rtmps protocols, which
+do crypto via the OpenSSL ffmpeg already links (`rtmpdh.c`
+`CONFIG_OPENSSL`). librtmp would only add a dep and subtract working
 crypto.
