@@ -209,6 +209,7 @@ because the monthly re-pin does not move any of them:
 | `quickjs`, `quickjs-ng` | `fetchTarball` of upstream | |
 | `procps-ng/portable.nix` | own `fetchurl`, 4.0.6 | |
 | `biber/windows.nix` `Win32-Unicode-0.38` | | |
+| `nix-lib/toolchain/uapi-uc/` | 8 netfilter UAPI headers, vendored from `linuxHeaders` 6.18.7 | `linuxHeaders` does not evaluate from a darwin package set and this payload builds on darwin; re-sync recipe in its README |
 | `binaryen` | **not a divergence** — `overrideAttrs` to v132, keeps `old.patches` | |
 
 **Fresh derivation over a nixpkgs source** — dropping the recipe:
