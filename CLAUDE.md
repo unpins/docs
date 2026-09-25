@@ -42,7 +42,7 @@ Each pkg dir is its own repo — commit and push there, **not** from the workspa
 
 This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the documentation sits next to it. Read here before re-investigating any platform issue.
 
-- [contributing.md](contributing.md) — where contributions go (multi-repo), conventions, commit trailer.
+- [contributing.md](contributing.md) — where contributions go (multi-repo), conventions, no commit trailers.
 - [adding-a-package.md](adding-a-package.md) — checklist when scaffolding a new package.
 - [releasing.md](releasing.md) — release flow, tag format, common failure modes.
 - [architecture.md](architecture.md) — `mkStandaloneFlake` (all parameters/outputs), the unpin-llvm engine, where per-binary quirks live (inline) vs. transitive-lib overlay fragments (`nix-lib/{native,mingw}-overlay/`, `nix-lib/cosmo/`), `nix-lib` scope rule, refactor verification.

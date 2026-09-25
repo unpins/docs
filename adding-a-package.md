@@ -155,14 +155,11 @@ git commit -m "$(cat <<'EOF'
 Initial <pkg> package: <short summary>
 
 <details — what patches were needed, what's the bin size, etc.>
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
 
-The co-author trailer is written by the agent's harness, which stamps the model
-it ran as — see [contributing.md](contributing.md#commit-conventions). The body
+No trailer lines — see [contributing.md](contributing.md#commit-conventions). The body
 should explain *why* a patch exists (the upstream behavior it works around), not
 what the code does.
 
