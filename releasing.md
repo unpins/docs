@@ -102,9 +102,12 @@ the filled reference.
 The cost is diluted by writing each entry **in the same commit that makes the
 change**, under a rolling `## [Unreleased]` heading. You never write a version
 header by hand: because `<pkgrel>` is computed at release time, the Release
-workflow stamps it for you — it inserts a `## [<tag>] - <date>` header beneath
-`## [Unreleased]` (which stays, empty, for the next cycle), commits that back
-to `main`, then tags. The release job extracts that section and
+workflow stamps it for you — it inserts a `## [<version>] - <date>` header
+beneath `## [Unreleased]` (which stays, empty, for the next cycle), commits
+that back to `main`, then tags. `<version>` is the tag without its leading
+`v`, as Keep a Changelog spells it (`v2.3.2-2` → `## [2.3.2-2]`); the nine
+headings stamped before 2026-09-26 carry the `v`, and the release job reads
+either spelling. The release job extracts that section and
 uses it as the body of the GitHub release, beneath a header it composes: the
 README's opening sentence with the version spliced in after the linked name, the
 `unpin install` one-liner, and a `Built on nixpkgs <channel> (<rev>, <date>)`
