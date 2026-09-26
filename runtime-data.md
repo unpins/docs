@@ -3,10 +3,9 @@
 Some programs need files beyond the executable at runtime: `vim` needs its
 `share/vim/<ver>/` runtime tree (syntax, ftplugin, doc, …), `gvim` the same,
 `file` needs its magic database (`magic.mgc`). unpins ships these
-**inside the binary** — no companion file, no extract-on-first-run — so the
-single-binary contract holds. A separate `.tar.zst` next to the binary
-(`package_data`) still exists for the rare case embedding can't cover (today
-only `nmap`), but it is **off by default**; embedding is the norm.
+**inside the binary** — no side file, no extract-on-first-run — so the
+single-binary contract holds. There is no alternative: a package whose data
+cannot be embedded cannot ship it.
 
 There are two embedding patterns, picked by how the program consumes the data.
 
@@ -87,49 +86,15 @@ it is mega-safe and byte-identical across linux, the crosses, darwin and
 windows. Pattern 1 is unaffected — `xxd -i` emits a C array that compiles into
 the module like any other data.
 
-## Fallback — companion archive (`package_data`, opt-in)
-
-`package_data` is `false` by default in `mkStandaloneFlake`. Set it `true` only
-for a package that genuinely can't embed its data. action-build then attaches
-`<pkg>-<version>-data.tar.zst` (built from `result/share/`, gated on it existing) to
-the GitHub release, and `unpin install <pkg>` extracts it into the version
-directory:
-
-```
-~/.local/share/unpin/<owner>/<pkg>/<tag>/
-├── bin/<pkg>
-└── share/…                       # contents of the data archive
-```
-
-`~/.local/bin/<pkg>` symlinks to `bin/<pkg>`; on Windows the layout collapses into
-`%LOCALAPPDATA%\unpin\packages\<owner>\<pkg>\<tag>\` plus a `<pkg>.exe` NTFS
-hardlink in the PATH dir. On
-disk the binary must then find that data **relative to itself**, not via the
-`/nix/store/...` path baked at build time.
-
-### Relative-to-exe lookup (for the companion-archive path)
-
-Resolve the running executable, then look for the data beside it:
-
-- **Linux** — `readlink("/proc/self/exe", …)`
-- **macOS** — `_NSGetExecutablePath(…)`
-- **Windows** — `GetModuleFileNameA(NULL, …)`
-
-Lookup order, first hit wins: `$<EXE>/../share/<pkg>/<data>`, then
-`$<EXE>/share/<pkg>/<data>`, then `$<EXE>/<data>`. If upstream already honors a
-`$<EXE>/share/<thing>` lookup or a `<NAME>_RUNTIME` env var, just package the
-data; don't patch. If it bakes absolute paths via autotools
-(`--datadir=<prefix>/share`), patch the lookup function — copy upstream's own
-Windows fallback ladder for `__linux__` / `__APPLE__`.
-
 ## Decision: which approach?
 
 - **One blob behind a load-from-buffer API** → Pattern 1 (compiled-in). Smallest,
   simplest, no VFS.
 - **A tree the program opens by path** → Pattern 2 (embedded ZIP + VFS). Single
   file, no first-run extract.
-- **Neither fits** (very large data, or a lookup you can't intercept) →
-  `package_data` companion archive + relative-to-exe lookup.
+- **Neither fits** → there is no side-asset escape hatch. A lookup you can't
+  intercept has to be patched to go through the VFS; very large data is still
+  embedded, and the binary is simply that big (nmap carries 817 files).
 - Never wrap the binary in a shell script that sets env vars — that breaks the
   single-binary contract.
 
@@ -140,10 +105,8 @@ it still works with no `share/` beside it:
 
 ```bash
 mkdir -p /tmp/<pkg>-test && cp result/bin/<pkg> /tmp/<pkg>-test/
-cd /tmp/<pkg>-test && ./<pkg> --version    # must not need any companion file
+cd /tmp/<pkg>-test && ./<pkg> --version    # must not need any file beside it
 ```
 
-For the companion-archive path, instead verify the relative lookup resolves
-(binary plus `share/` in a fresh dir, never `/nix/store/...`). If a binary still
-reports a `/nix/store/...` data path, its lookup wasn't patched —
-`strings result/bin/<pkg> | grep -E 'share/<pkg>|/proc/self/exe|_NSGetExecutablePath'`.
+If a binary still reports a `/nix/store/...` data path, its lookup wasn't
+patched — `strings result/bin/<pkg> | grep -E 'share/<pkg>|/nix/store'`.

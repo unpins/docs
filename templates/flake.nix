@@ -49,10 +49,6 @@
       # nativeBuild = false;
       # windows     = true;
 
-      # Rare fallback for runtime data that genuinely can't be embedded
-      # (docs/runtime-data.md — embedding is the norm; only nmap uses this):
-      # package_data = true;
-
       # Override when the binary's name differs from the package name:
       # binName = "<pkg>";
     };
