@@ -108,10 +108,15 @@ that back to `main`, then tags. `<version>` is the tag without its leading
 `v`, as Keep a Changelog spells it (`v2.3.2-2` → `## [2.3.2-2]`); the nine
 headings stamped before 2026-09-26 carry the `v`, and the release job reads
 either spelling. The release job extracts that section and
-uses it as the body of the GitHub release, beneath a header it composes: the
-README's opening sentence with the version spliced in after the linked name, the
-`unpin install` one-liner, and a `Built on nixpkgs <channel> (<rev>, <date>)`
-provenance line read from `flake.lock`. A package that hasn't adopted a
+uses it as the body of the GitHub release, beneath a header it composes:
+`**<pkg> <version>**` on a line of its own, the README's opening paragraph
+verbatim below it, the `unpin install` one-liner, and a
+`Built on nixpkgs <channel> (<rev>, <date>)` provenance line read from
+`flake.lock`. The opening is the first prose paragraph after the README's H1
+(badges, images, HTML, blockquotes, fences and tables are skipped), and
+**Build fails when there is none** — the body used to fall back to a generic
+line instead, which nobody sees until they read a release. Nothing is spliced
+into that sentence, so a README writes whatever prose reads best. A package that hasn't adopted a
 `CHANGELOG.md` yet is unaffected — the workflow falls back to GitHub's
 auto-generated commit notes — so adoption can be gradual, one package at a time.
 
