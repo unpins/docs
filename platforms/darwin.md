@@ -108,6 +108,8 @@ Why not pkgsStatic for the whole build:
 
 **Previous failed approach** (don't revive): `install_name_tool -change` retargeting to `/usr/lib/libiconv.2.dylib`. The dylib is in the dyld shared cache on every macOS, but action-build rejects it — staticize instead.
 
+**UTF-8-MAC.** Under the engine, darwin's iconv is GNU libiconv (`libiconvReal`), not Apple's — and GNU has no `UTF-8-MAC`, the NFD encoding HFS+/APFS names come in. git's `precompose_utf8` opens it on every non-ASCII path, so it died with `iconv_open(UTF-8,UTF-8-MAC) failed`. `nix-lib` carries MacPorts' utf8mac patch (`libiconv-utf8mac.patch`, alias tables pre-generated) on every darwin `libiconvReal` via `withUtf8Mac`. *Every* copy, not just the one you link directly: libunistring propagates the scope's own, so git's link met two GNU archives and the first one answering `libiconv_open` wins.
+
 ## C++ apps: static-link libc++
 
 The allow-list permits `libSystem` + Frameworks + `libobjc` — **not** `/usr/lib/libc++.1.dylib`. A C++ binary built with `clang++` links libc++ dynamically by default and gets rejected. Static-link the C++ runtime into the final link:
