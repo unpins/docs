@@ -216,7 +216,7 @@ The shipped path for bash on Windows is Cosmopolitan — see `unpins/bash/cosmo.
 
 ### git
 
-**Status: not shipped — parked in `playground/git`** (whose flake has since focused on the native multicall build), pending the runtime-shell embed port (last subsection below). The mingw recipe below was validated 2026-05-15 and is preserved as the starting point for whoever picks it back up.
+**Status: built in `playground/git` (`windowsBuild = mkMingw`), smoke-tested on the Windows 10 VM 2026-09-26** — submodule, filter-branch, mergetool/difftool, subtree, request-pull, `#!/bin/sh` hooks and `!` aliases all run with no shell on the host (last subsection below). The recipe was first validated 2026-05-15.
 
 Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-static cascade, ~7-8 MB after static curl). The "blocked at every layer" story from earlier sessions was wrong: every dep-chain failure was a spurious cross-build of a tool that `gitMinimal` only uses to rewrite shebangs of shell scripts we delete anyway, OR was bypassable with a knob already used by other unpins packages. The single real source bug was patched in 5 lines.
 
@@ -264,7 +264,7 @@ Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-
 **Symbol collisions** under multicall — both fixed in `playground/git/`:
 
 - `scalar.c::load_builtin_commands` is a `die("not implemented")` stub that collides with git.c's real implementation once scalar.o is folded in. `playground/git/scalar-rename-load-builtin.patch` renames it to `scalar_load_builtin_commands`; help.c then resolves to git.c's real one (strict improvement).
-- libidn2 (gnulib) exports a global `error` that collides with git's usage.c. Fix: `objcopy --localize-symbol=error libidn2.a` in the libidn2 derivation's postInstall — see `nix-lib/mingw-overlay/libidn2.nix` for the mingw side and `playground/git/flake.nix`'s `withLocalizedLibidn2` (threaded via `.override`, not as a top-level overlay — overlays at top level invalidate `pkgsBuildHost.stdenv` and force a gcc rebuild) for native.
+- libidn2 (gnulib) exports a global `error` that collides with git's usage.c. Fix: `objcopy --localize-symbol=error libidn2.a` in the libidn2 derivation's postInstall — see `nix-lib/mingw-overlay/libidn2.nix`. (Native needs nothing since the move to the engine: its link has no such collision, and `objcopy` can't read the engine's bitcode archives anyway.)
 
 After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhere.
 
@@ -283,7 +283,14 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 
 - **`NO_OPENSSL=YesPlease` + `USE_CURL_FOR_IMAP_SEND=YesPlease`** makeFlags: Schannel-curl means no openssl in tree, but git's `imap-send.c` references openssl symbols directly. The first prevents the openssl autoconf probe; the second routes IMAP TLS through curl (which uses Schannel).
 
-**Runtime shell** is still required (`git-submodule`, `git-mergetool`, hooks). Same problem as Linux/Darwin, solved there by the dash-embed pattern in `playground/git/embed.patch`. For Windows, port the embed pipeline to cross-mingw (or use a cosmo dash blob). `playground/git/flake.nix`'s `multicallOverride { withEmbed = false; }` is the current mingw mode — ships the binary without embedded scripts; users of submodule/mergetool need a system shell until the embed port lands.
+**Runtime shell: busybox-w32's `ash`, linked into `git.exe`** — the same on Linux and macOS, see `playground/git/busybox/`. Git's scripts, mergetools and templates live in the binary's ZIP and are served by unpin-vfs (marker mode, `__unpins_git__`); ash's own `fork` is emulated by re-running the binary (`sh --fs <handle>`), and its applets (sed, grep, awk, …) are the ones the scripts get. What Windows specifically took:
+
+- **Dispatch before git's `wmain`.** git builds with `-municode`, so the CRT never fills the narrow `__argv`/`environ` that busybox-w32 (a narrow `main()` program) uses. `mingw-unpins-sh.patch` calls `unpins_wdispatch()` first thing in `wmain`, which gets them with `__getmainargs` exactly as busybox's own startup would, before git touches the console, the environment or argv.
+- **`USE_NED_ALLOCATOR=` (off).** The MINGW block turns nedmalloc on, and it defines `malloc`/`free` for the whole process: busybox then freed CRT-heap memory (`strdup`, `_fullpath`) with it, and got blocks not 16-byte aligned for its `jmp_buf`s — `_setjmp`'s `movdqa` faulted in `msvcrt.dll` (0xC0000005) on the very first `sh -c exit`.
+- **busybox built with `-mcmodel=small`.** With mingw's default `medium`, every object carries `.refptr.<sym>` COMDATs, deduplicated by name across the whole link; one kept from the (symbol-localised) busybox object left git's own references unresolved (`undefined reference to .refptr.strcasecmp`).
+- **Exec-path entries carry `.exe`.** ash's PATH search adds the extension only after trying the bare name, and only counts a file executable by its extension — so the ZIP's names for git's dashed commands are `git-upload-pack.exe` etc., the exec hook retries with `.exe`, and virtual files always report `r-x` (their materialised copy is a `.tmp`).
+- **`git maintenance start`** schedules `git.exe` itself; upstream's `headless-git.exe` is not built.
+- Testing: git's `detect_msys_tty()` crashes under **wine** when stdin/stdout are pipes (NULL pipe-name buffer) — a wine artefact; test on real Windows.
 
 ### coreutils
 
