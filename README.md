@@ -18,7 +18,7 @@ These are the internal docs for the [unpins](https://unpins.org) workspace — t
 
 Cumulative logs of gotchas, dead ends, and known fixes — so the next person doesn't re-discover them.
 
-- [platforms/mingw.md](platforms/mingw.md) — Windows cross-builds: POSIX shim gaps, the libidn2 / libpsl / libunistring / libiconv static-link chain, fake-static libraries, and the packages that don't take the mingw path (`bash`, `coreutils` and the other POSIX-bound packages ship via cosmo; `git` is parked in `playground/`).
+- [platforms/mingw.md](platforms/mingw.md) — Windows cross-builds: POSIX shim gaps, the libidn2 / libpsl / libunistring / libiconv static-link chain, fake-static libraries, and the packages that don't take the mingw path (`bash`, `coreutils` and the other POSIX-bound packages ship via cosmo; `git` takes the mingw path with busybox-w32's shell linked in).
 - [platforms/darwin.md](platforms/darwin.md) — macOS: how `pkgsStatic` behaves on darwin, the cross-within-darwin pattern, the overlay-cascade pitfall, and two abandoned approaches.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan toolchain: when to reach for it, the `cosmoStdenv` pattern, packaging mechanics, and the `ahgamut/superconfigure` reference.
 

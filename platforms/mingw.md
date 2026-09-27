@@ -216,7 +216,7 @@ The shipped path for bash on Windows is Cosmopolitan — see `unpins/bash/cosmo.
 
 ### git
 
-**Status: built in `playground/git` (`windowsBuild = mkMingw`), smoke-tested on the Windows 10 VM 2026-09-26** — submodule, filter-branch, mergetool/difftool, subtree, request-pull, `#!/bin/sh` hooks and `!` aliases all run with no shell on the host (last subsection below). The recipe was first validated 2026-05-15.
+**Status: shipped in the `git` package (`windowsBuild = mkMingw`), smoke-tested on the Windows 10 VM 2026-09-26** — submodule, filter-branch, mergetool/difftool, subtree, request-pull, `#!/bin/sh` hooks and `!` aliases all run with no shell on the host (last subsection below). The recipe was first validated 2026-05-15.
 
 Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-static cascade, ~7-8 MB after static curl). The "blocked at every layer" story from earlier sessions was wrong: every dep-chain failure was a spurious cross-build of a tool that `gitMinimal` only uses to rewrite shebangs of shell scripts we delete anyway, OR was bypassable with a knob already used by other unpins packages. The single real source bug was patched in 5 lines.
 
@@ -261,14 +261,14 @@ Cross-mingw IS viable. Multicall folds helpers into a single PE32+ (~5.6 MB pre-
 
 8. **postInstall**: fix nixpkgs git's `bin/git-http-backend → libexec/git-core/git-http-backend` symlink — on Windows the target is `git-http-backend.exe`. Walk `$out/bin/` and re-link any dangling symlinks with `.exe` appended.
 
-**Symbol collisions** under multicall — both fixed in `playground/git/`:
+**Symbol collisions** under multicall — both fixed in `git/`:
 
-- `scalar.c::load_builtin_commands` is a `die("not implemented")` stub that collides with git.c's real implementation once scalar.o is folded in. `playground/git/scalar-rename-load-builtin.patch` renames it to `scalar_load_builtin_commands`; help.c then resolves to git.c's real one (strict improvement).
+- `scalar.c::load_builtin_commands` is a `die("not implemented")` stub that collides with git.c's real implementation once scalar.o is folded in. `git/scalar-rename-load-builtin.patch` renames it to `scalar_load_builtin_commands`; help.c then resolves to git.c's real one (strict improvement).
 - libidn2 (gnulib) exports a global `error` that collides with git's usage.c. Fix: `objcopy --localize-symbol=error libidn2.a` in the libidn2 derivation's postInstall — see `nix-lib/mingw-overlay/libidn2.nix`. (Native needs nothing since the move to the engine: its link has no such collision, and `objcopy` can't read the engine's bitcode archives anyway.)
 
 After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhere.
 
-**Static cascade** lives in `playground/git/flake.nix`'s `mkMingw` closure (wired at `packages.x86_64-linux.windows-x86_64`) — validated 2026-05-15, producing a 7.2 MB `git.exe` with zero non-system DLL imports:
+**Static cascade** lives in `git/flake.nix`'s `mkMingw` closure (wired at `packages.x86_64-linux.windows-x86_64`) — validated 2026-05-15, producing a 7.2 MB `git.exe` with zero non-system DLL imports:
 
 - `cross = nix-lib.lib.mingwStaticCross pkgs` for the static-libs adapter.
 - `curlSchannel = nix-lib.lib.mingwStaticBinary { ... }` — same shape as `unpins/curl` (`opensslSupport = false; scpSupport = false; libssh2 = null; brotliSupport = false; zstdSupport = false`) plus `--with-schannel` and `-DCURL_STATICLIB -DNGHTTP2_STATICLIB -DPSL_STATIC`.
@@ -283,7 +283,7 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 
 - **`NO_OPENSSL=YesPlease` + `USE_CURL_FOR_IMAP_SEND=YesPlease`** makeFlags: Schannel-curl means no openssl in tree, but git's `imap-send.c` references openssl symbols directly. The first prevents the openssl autoconf probe; the second routes IMAP TLS through curl (which uses Schannel).
 
-**Runtime shell: busybox-w32's `ash`, linked into `git.exe`** — the same on Linux and macOS, see `playground/git/busybox/`. Git's scripts, mergetools and templates live in the binary's ZIP and are served by unpin-vfs (marker mode, `__unpins_git__`); ash's own `fork` is emulated by re-running the binary (`sh --fs <handle>`), and its applets (sed, grep, awk, …) are the ones the scripts get. What Windows specifically took:
+**Runtime shell: busybox-w32's `ash`, linked into `git.exe`** — the same on Linux and macOS, see `git/busybox/`. Git's scripts, mergetools and templates live in the binary's ZIP and are served by unpin-vfs (marker mode, `__unpins_git__`); ash's own `fork` is emulated by re-running the binary (`sh --fs <handle>`), and its applets (sed, grep, awk, …) are the ones the scripts get. What Windows specifically took:
 
 - **Dispatch before git's `wmain`.** git builds with `-municode`, so the CRT never fills the narrow `__argv`/`environ` that busybox-w32 (a narrow `main()` program) uses. `mingw-unpins-sh.patch` calls `unpins_wdispatch()` first thing in `wmain`, which gets them with `__getmainargs` exactly as busybox's own startup would, before git touches the console, the environment or argv.
 - **`USE_NED_ALLOCATOR=` (off).** The MINGW block turns nedmalloc on, and it defines `malloc`/`free` for the whole process: busybox then freed CRT-heap memory (`strdup`, `_fullpath`) with it, and got blocks not 16-byte aligned for its `jmp_buf`s — `_setjmp`'s `movdqa` faulted in `msvcrt.dll` (0xC0000005) on the very first `sh -c exit`.

@@ -11,7 +11,7 @@ Cosmopolitan implements those primitives on Windows via `CreateProcessW` + page 
 The toolchain lives in **`nix-lib/cosmocc.nix`** (absorbed from a separate flake on 2026-05-15). Two entry points:
 
 - **`pkgs.pkgsCross.cosmo`** — first-class nixpkgs cross target, symmetric to `pkgs.pkgsCross.mingwW64`. The `pkgs` here is `mkStandaloneFlake`'s `windowsPkgs`, which `applyPatches`'s `nix-lib/cosmo-lib-systems.patch` onto nixpkgs (registers `cosmo` as a kernel + `examples.cosmo` crossSystem) and wires `config.replaceCrossStdenv` + the `nix-lib/cosmo/` library overlay. **The consumer-facing API** — catalog packages access it from a `./cosmo.nix` sidecar invoked via `windowsBuild = import ./cosmo.nix { inherit unpins-lib; }`. See [§ The cosmo cross set](#the-cosmo-cross-set) below. The legacy `unpins-lib.lib.cosmoStaticCross pkgs` is a passthrough alias kept for API symmetry with `lib.mingwStaticCross`.
-- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. The older POC pattern (in-tree prefix-tree builds) that pre-dates first-class cross; `playground/git` is its last consumer. The bash/coreutils/dash/links POCs that proved it graduated to top-level packages on the `pkgsCross.cosmo` route and their playground dirs are gone — the worked notes from those ports are kept at the end of this page.
+- **`unpins-lib.lib.cosmoStdenv pkgs`** — native stdenv that wraps the cosmocc single-arch driver via cc-wrapper. The older POC pattern (in-tree prefix-tree builds) that pre-dates first-class cross; no package calls it any more, and nix-lib keeps it for the multicall fold's `cosmocc` engine. The bash/coreutils/dash/links POCs that proved it graduated to top-level packages on the `pkgsCross.cosmo` route and their playground dirs are gone — the worked notes from those ports are kept at the end of this page.
 
 The empty-import-table trade-off ([Caveats](#caveats)) has been accepted for packages where mingw is infeasible; see [../dynamic-link-policy.md](../dynamic-link-policy.md#cosmopolitan-caveat).
 
@@ -277,7 +277,7 @@ if (prev.stdenv.hostPlatform.isCosmo or false) then {
 
 ### When to use each entry point
 
-- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — currently only `playground/git`. The pattern matches `superconfigure`'s shape and pre-dates first-class cross.
+- **`cosmoStdenv`** for in-tree prefix-tree builds where you control the whole `buildPhase` and want to call `cosmocc` directly — no package does today; nix-lib's multicall fold uses it for the `cosmocc` engine. The pattern matches `superconfigure`'s shape and pre-dates first-class cross.
 - **`pkgs.pkgsCross.cosmo`** for catalog packages — "I just want `pkgs.openssl` cosmo-flavoured" — when the package builds cleanly via autotools and you only need a per-binary quirk file in `<consumer>/cosmo.nix`. Most packages need `NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1` because their `meta.platforms` doesn't list cosmo.
 
 ### Cross-arch caveat

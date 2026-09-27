@@ -15,7 +15,7 @@ Top-level directories are **independent git repositories**:
 | `<pkg>/` directories | Per-package flakes — one repo per tool. See [unpins.org/packages](https://unpins.org/packages.html) for the current catalog. |
 | `action-build/` | Reusable GitHub Actions workflows that build, verify, and release each flake. |
 | `website/` | Site source (`unpins.org`). |
-| `playground/` | Work-in-progress packages and reference POCs, not consumed by `unpin` or the website — e.g. `git` (multicall WIP), `static-gtk2-recipe`, the engine/toolchain spikes (`llvm`, `unpin-stdenv`, `mega-multicall`, …). Packages graduate to a top-level repo when they ship (bash, coreutils, dash all did). |
+| `playground/` | Work-in-progress packages and reference POCs, not consumed by `unpin` or the website — e.g. `static-gtk2-recipe`, the engine/toolchain spikes (`llvm`, `unpin-stdenv`, `mega-multicall`, …). Packages graduate to a top-level repo when they ship (bash, coreutils, dash and git all did). |
 
 The local `/home/<user>/projetos/unpins/` directory is a **view** of those independent repos — it is not itself a git repo. Commit and push in the package's own directory.
 

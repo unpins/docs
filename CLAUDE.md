@@ -56,7 +56,7 @@ This file lives inside the `docs/` repo (`github:unpins/docs`); the rest of the 
 - [helper-verbs.md](helper-verbs.md) — the model for `unpin man`/`readme`/`search`/… : a verb is **builtin** when its renderer is small/shared (man, readme — folded back in for in-process reflow) or shipped as an `unpins/unpin-<verb>` package (e.g. a future `search`) reached only via `unpin <verb>`, never on `PATH`; dispatch precedence and the catalog naming reservation that keep the verb name from colliding with the OS or the catalog.
 - [patches.md](patches.md) — patch-writing gotchas (regenerate via `diff -u`; where to apply; fake-static libs; symbol-collision recipe).
 - [multicall.md](multicall.md) — folding many upstream executables into one dispatching binary: the declarative `multicall = { … }` engine self-fold, the shared dispatcher contract, legacy hand-fold recipes for the Windows fallbacks.
-- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, mingw blockers (bash/coreutils and the other POSIX-bound packages ship via cosmo; git is parked in playground/).
+- [platforms/mingw.md](platforms/mingw.md) — POSIX shim gaps, static-link pitfalls, fake-static libs, mingw blockers (bash/coreutils and the other POSIX-bound packages ship via cosmo; git takes the mingw path with busybox-w32's shell linked in).
 - [platforms/darwin.md](platforms/darwin.md) — `pkgsStatic` semantics, cross within darwin, overlay cascade, dead ends.
 - [platforms/cosmocc.md](platforms/cosmocc.md) — Cosmopolitan + `superconfigure` for mingw-blocked packages + first-class `pkgs.pkgsCross.cosmo` (wired via `applyPatches` + `replaceCrossStdenv` in `windowsPkgs`).
 - [big-packages.md](big-packages.md) — ffmpeg-class playbook; static GTK2 recipe.

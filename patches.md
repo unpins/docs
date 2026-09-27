@@ -96,4 +96,4 @@ $AR rcs libfoo.a foo_combined.o
 
 Without this, common names like `xwrite`, `error`, `init`, `signal`, `fork`, `exit`, `trap` collide silently with the host program's symbols (multiple-definition is a warning, not an error, especially under `--allow-multiple-definition`). The first definition wins and you get baffling runtime behavior — e.g. `git init` failing with "No space left on device" because dash's `xwrite` (returns 0 on success) ate git's `xwrite` (returns bytes-written).
 
-Reference: `playground/git/bundle.nix` (embedded dash).
+Reference: `git/busybox/default.nix` (busybox-w32's ash linked into git; on darwin, where `ld64.lld` has no `-r`, it renames every global instead — see [platforms/darwin.md](platforms/darwin.md)).
