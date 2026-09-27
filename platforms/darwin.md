@@ -192,6 +192,16 @@ A copy-paste install command like `curl ... unpin-$(uname -m)-darwin` lands on `
 
 Place specific aliases above the splat (`/unpin-* → .../unpin-:splat`), since Cloudflare `_redirects` matches first-rule-wins. The `unpin` client parser itself already accepts both `aarch64` and `arm64` keys (`current_arch_keys()` in `unpin/src/platform.rs`), so this only matters for hand-rolled bootstrap URLs, not for `unpin install`.
 
+## The engine's `ld64.lld` has no `-r`
+
+`ld64.lld: warning: Option '-r' is not yet implemented` — and it goes on to link an executable (`undefined symbol: _main`). So nothing on darwin can build a relocatable object: not kbuild's `built-in.o` (busybox links every directory with `$(LD) -r`), and not the one-object-with-hidden-symbols trick that ELF (`ld -r` + `objcopy --keep-global-symbol`) and COFF use to link one program into another. It worked on the Mac's plain stdenv, whose `ld` is Apple's; it fails only under the engine, i.e. first in CI.
+
+What `playground/git/busybox` does instead on darwin: kbuild's `LD` is a script that writes each `built-in.o` as the list of objects it stands for; the objects are collected, every global they define is renamed with `llvm-objcopy --redefine-syms` (`_x` → `_unpins_bbx_x`, applied to all of them, so their references to each other follow), and they ship as an archive. Mach-O linkers search archives in any order, so the archive's place on the link line doesn't matter.
+
+## BSD `getopt()` and `optind = 0`
+
+glibc and musl reset `getopt()` with `optind = 0`; macOS's `getopt()` takes `optind = 0` as "no options" and leaves `optind` there, so the caller's `argv + optind` starts at its own name. busybox resets that way before every in-process applet (`GETOPT_RESET()`), so on macOS `head -n 1` read files named `head`, `-n` and `1`. Applets that parse with `getopt32` were fine — macOS's `getopt_long` does accept `optind = 0` — which is what makes it look like one broken applet. The BSD reset is `optreset = 1, optind = 1`.
+
 ## Dead end: cross-darwin from linux
 
 Investigated 2026-05-13. Goal: expose `packages.x86_64-linux.{darwin-x86_64,darwin-aarch64}` so dev iteration on darwin packages would not need a Mac. **Does not work on any current nixpkgs channel.**
