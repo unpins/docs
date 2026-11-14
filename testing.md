@@ -14,8 +14,8 @@ specifics (test command, extra deps, skip reasons) live in each package's
    match `smokePattern`. Runs on every job that can execute the artifact:
    the native jobs directly, `darwin-x86_64` via Rosetta on the arm Mac
    runner, Windows in a separate `smoke_windows` job on a `windows-2022`
-   runner. Cross linux arches (i686, ppc64le, riscv64, armv7l) are build-only
-   in CI.
+   runner. Cross linux arches (i686, ppc64le, riscv64, armv7l) get no smoke
+   in CI (i686 still runs the upstream suite, below).
 3. **Applet sweep** (multicall packages) — every applet declared in
    `manifest.applets_by_target` must dispatch via `--unpin-program` and the
    announced list must match the declaration in both directions. Includes a
@@ -34,8 +34,10 @@ doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
 ```
 
 That's `true` on the three native jobs — x86_64-linux (`ubuntu-latest`),
-aarch64-linux (`ubuntu-24.04-arm`), aarch64-darwin (`macos-14`) — and `false`
-on every cross target (Windows, i686/ppc64le/riscv64/armv7l, `darwin-x86_64`).
+aarch64-linux (`ubuntu-24.04-arm`), aarch64-darwin (`macos-14`) — and on
+`linux-i686`, which the x86_64 runner builds as a cross but can execute. It is
+`false` on the other cross targets (Windows, ppc64le/riscv64/armv7l,
+`darwin-x86_64`).
 There is no separate test harness in action-build: the suite runs inside
 `nix build`'s check phase on those jobs.
 
@@ -48,8 +50,8 @@ static-musl incompatibility, no meaningful suite). A skip must always name its
 reason; "it failed" alone is a prompt to investigate, not to flip the flag.
 The README states the same fact in its **Tests:** bullet, in one of the three
 closed forms of the [README template](templates/README.md) — and only what the
-flake does: a suite gated on `canExecute` never runs on a cross target, so the
-README must not say it does.
+flake does: a suite gated on `canExecute` never runs on a cross target the
+build host can't execute, so the README must not say it does.
 
 ## What doesn't exist (deliberately, so far)
 
