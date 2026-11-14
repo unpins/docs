@@ -224,6 +224,7 @@ because the monthly re-pin does not move any of them:
 | `vim/flake.nix` (cross), `gvim/flake.nix` | empty today |
 | `biber/flake.nix` 19 perl XS modules | empty today |
 | `xvfb/`, `xvnc/` xkbcomp ×6 | empty today |
+| `moreutils/flake.nix` (engine build), `moreutils/cosmo.nix` | empty today |
 | `nix-lib/toolchain/default.nix` musl, `tcc/multi.nix` ×5 | **fixed 2026-09-24** |
 
 **Patch list replaced rather than extended:** `usbutils/flake.nix` drops
