@@ -35,11 +35,11 @@ nix build .#packages.x86_64-darwin.default --no-link --print-out-paths
 # otherwise just `pkgs.pkgsCross.aarch64-darwin.pkgsStatic.<pkg>`.
 ```
 
-`aarch64-darwin` native still needs Apple Silicon (CI `macos-14`). Local cross-from-Intel is good enough for compile-sanity.
+`aarch64-darwin` native still needs Apple Silicon (CI `macos-15`). Local cross-from-Intel is good enough for compile-sanity.
 
 ### Native test suite
 
-The functional smoke test (`smoke`/`smokePattern`) only proves the binary launches and prints its version. The upstream **test suite** is a much stronger check — and it *can* run, but only on a host that can execute what it built. Cross targets (Windows, i686, ppc64le, riscv64, armv7l, and `darwin-x86_64`) build test binaries for a foreign machine, so their `checkPhase` is skipped no matter what. The **native** jobs are different: x86_64-linux (`ubuntu-latest`), aarch64-linux (`ubuntu-24.04-arm`) and aarch64-darwin (`macos-14`) each run on their own arch, so `make check` runs there for real. (There is no x86_64-darwin runner — that artifact is a cross under `aarch64-darwin`, smoked via Rosetta but never check-phased; armv7l is a cross under `aarch64-linux`, neither checked nor smoked.)
+The functional smoke test (`smoke`/`smokePattern`) only proves the binary launches and prints its version. The upstream **test suite** is a much stronger check — and it *can* run, but only on a host that can execute what it built. Cross targets (Windows, i686, ppc64le, riscv64, armv7l, and `darwin-x86_64`) build test binaries for a foreign machine, so their `checkPhase` is skipped no matter what. The **native** jobs are different: x86_64-linux (`ubuntu-latest`), aarch64-linux (`ubuntu-24.04-arm`) and aarch64-darwin (`macos-15`) each run on their own arch, so `make check` runs there for real. (There is no x86_64-darwin runner — that artifact is a cross under `aarch64-darwin`, smoked via Rosetta but never check-phased; armv7l is a cross under `aarch64-linux`, neither checked nor smoked.)
 
 Wire it into the flake's build derivation gated on "not cross", so it runs on every native runner and auto-skips the rest:
 
@@ -86,7 +86,7 @@ Packages that legitimately have no man (codec libs, `coreutils`/`busybox` withou
 
 ### CI green
 
-The Build workflow on `main` must be green across all matrix jobs before dispatching Release. CI runners cover the paths your local box can't reach: `aarch64-linux` native (plus the `linux-armv7l` cross) on `ubuntu-24.04-arm`, `aarch64-darwin` native (plus the `darwin-x86_64` cross) on `macos-14`, and the Windows smoke on `windows-2022`.
+The Build workflow on `main` must be green across all matrix jobs before dispatching Release. CI runners cover the paths your local box can't reach: `aarch64-linux` native (plus the `linux-armv7l` cross) on `ubuntu-24.04-arm`, `aarch64-darwin` native (plus the `darwin-x86_64` cross) on `macos-15`, and the Windows smoke on `windows-2022`.
 
 ## Changelog and release notes
 

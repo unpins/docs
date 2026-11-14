@@ -34,7 +34,7 @@ doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
 ```
 
 That's `true` on the three native jobs — x86_64-linux (`ubuntu-latest`),
-aarch64-linux (`ubuntu-24.04-arm`), aarch64-darwin (`macos-14`) — and on
+aarch64-linux (`ubuntu-24.04-arm`), aarch64-darwin (`macos-15`) — and on
 `linux-i686`, which the x86_64 runner builds as a cross but can execute. It is
 `false` on the other cross targets (Windows, ppc64le/riscv64/armv7l,
 `darwin-x86_64`).
