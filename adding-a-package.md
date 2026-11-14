@@ -13,6 +13,18 @@ target: it can't link statically / against musl, it can't cross-compile, or it
 needs an OS API the target lacks. "It was easier to disable" is never a reason.
 Note every dropped feature in the README's Build notes with the target and a
 one-line why (same rule [releasing.md](releasing.md) applies to `--disable-*`).
+
+The yardstick is the **full nixpkgs package** — not its static or minimal
+variant (`gitMinimal`, `ffmpeg-headless`, the `pkgsStatic` defaults). What it
+turns on, we turn on, and a static-only opt-out is something to retry, not to
+inherit. What it leaves off by default (coreutils' SELinux, tar's lz4) stays
+off here too, noted as "(off in nixpkgs)". Sibling programs follow the same
+yardstick: ship what the nixpkgs package installs, and list the rest under
+**Not included** (see the [README template](templates/README.md)).
+
+**Translations are not shipped.** No package carries message catalogs (`.mo`):
+every binary speaks the upstream's default language. This is a catalog-wide
+fact, so package READMEs don't repeat it; embedding the catalogs is future work.
 Before disabling something to "save space", measure — static link + DCE makes
 "heavy" libs nearly free (see
 [static-linking.md](static-linking.md#dce-is-much-more-aggressive-than-you-expect)).

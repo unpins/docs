@@ -40,8 +40,11 @@
       # windowsBuild = pkgs: ...;                              # mingw quirks
       # windowsBuild = import ./cosmo.nix { inherit unpins-lib; };  # cosmo sidecar
 
-      # Run the upstream test suite on the native CI jobs where it passes
-      # (see docs/testing.md); leave it off with a one-line reason otherwise.
+      # Run the upstream test suite on the native CI jobs (docs/testing.md).
+      # Leave it off only for a known cause — no upstream suite, a suite that
+      # changes the shipped library, or runaway cost — stated here in one line;
+      # "it failed" is a prompt to investigate. The README's **Tests:** bullet
+      # must say the same.
       # doCheck via build closure:
       #   doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
 

@@ -28,7 +28,7 @@ CI enforces this via `otool -L` against the allow-list.
 
 The Windows artifact is always a single `x86_64` PE `.exe`, whether built via mingw or cosmo — the cosmo path apelinks `-V 4` to a Windows-only PE in `fixupPhase` and ships *that*, never the APE fat binary (see [platforms/cosmocc.md](platforms/cosmocc.md) and the [Cosmopolitan caveat](#cosmopolitan-caveat) below).
 
-Allowed dynamic loads: only DLLs under `%WINDIR%\System32` — `KERNEL32.dll`, `ucrtbase.dll` / `msvcrt.dll`, `WS2_32.dll`, `USER32.dll`, `ADVAPI32.dll`, `SHELL32.dll`, `SHLWAPI.dll`, `GDI32.dll`, etc.
+Allowed dynamic loads: only DLLs under `%WINDIR%\System32` — `KERNEL32.dll`, the UCRT (`api-ms-win-crt-*.dll` / `ucrtbase.dll`, what the engine links — Windows 10+, see [platforms/mingw.md](platforms/mingw.md#runtime-requirement-windows-10-or-later-ucrt)), `msvcrt.dll`, `WS2_32.dll`, `USER32.dll`, `ADVAPI32.dll`, `SHELL32.dll`, `SHLWAPI.dll`, `GDI32.dll`, etc.
 
 CI applies two checks (`action-build/.github/workflows/build.yml`):
 

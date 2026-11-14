@@ -46,6 +46,10 @@ explicit `doCheck = false` with a one-line reason — the policy for when that's
 acceptable is in [releasing.md](releasing.md#native-test-suite) (runaway cost,
 static-musl incompatibility, no meaningful suite). A skip must always name its
 reason; "it failed" alone is a prompt to investigate, not to flip the flag.
+The README states the same fact in its **Tests:** bullet, in one of the three
+closed forms of the [README template](templates/README.md) — and only what the
+flake does: a suite gated on `canExecute` never runs on a cross target, so the
+README must not say it does.
 
 ## What doesn't exist (deliberately, so far)
 

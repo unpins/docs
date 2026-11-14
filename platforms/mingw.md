@@ -4,6 +4,20 @@ unpins' Windows builds cross-compile from Linux runners via `pkgsCross.mingwW64`
 
 The `mingwStaticCross pkgs` helper in `nix-lib` is the entry point — see [../architecture.md](../architecture.md). A package that sets `multicall.windows = true` additionally routes its build through the unpin-llvm engine (bitcode + self-folded dispatcher) on top of this cross set — but parts of the dependency chain still build through the gcc-based mingw path documented here, so the gotchas below stay live either way.
 
+## Runtime requirement: Windows 10 or later (UCRT)
+
+The engine links the Universal C Runtime: a shipped mingw `.exe` imports the
+`api-ms-win-crt-*-l1-1-0.dll` API sets, which resolve to `ucrtbase.dll`. Windows 10
+and later carry the UCRT as part of the OS, so Windows 10 is the supported
+minimum; older Windows is not tested. (`windowsGnullvmCross` declares
+`libc = "msvcrt"`, but that only tells nixpkgs how to build its own mingw-w64;
+it is not what the engine links.) Check a binary with
+`objdump -p <pkg>.exe | grep 'DLL Name'`.
+
+This is a fact of every mingw `.exe`, so it lives here, not in package READMEs.
+Cosmo `.exe`s have an empty import table and need no CRT
+([cosmocc.md](cosmocc.md)).
+
 ## POSIX shim gaps
 
 mingw-w64's headers target the Win32 API surface, not POSIX. Setting `_GNU_SOURCE` or `_POSIX_C_SOURCE` doesn't unlock the missing types or symbols.
