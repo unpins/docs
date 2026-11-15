@@ -285,12 +285,12 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 **Static cascade** lives in `git/flake.nix`'s `mkMingw` closure (wired at `packages.x86_64-linux.windows-x86_64`) — validated 2026-05-15, producing a 7.2 MB `git.exe` with zero non-system DLL imports:
 
 - `cross = nix-lib.lib.mingwStaticCross pkgs` for the static-libs adapter.
-- `curlSchannel = nix-lib.lib.mingwStaticBinary { ... }` — same shape as `unpins/curl` (`opensslSupport = false; scpSupport = false; libssh2 = null; brotliSupport = false; zstdSupport = false`) plus `--with-schannel` and `-DCURL_STATICLIB -DNGHTTP2_STATICLIB -DPSL_STATIC`.
-- `gitMinimal.override { curl = curlSchannel; bash/gawk/gnused/gnugrep/coreutils = pkgs.X; }` to keep build-host tools native.
+- `curlSchannel = nix-lib.lib.mingwStaticBinary { ... }` — same shape as `unpins/curl` (`opensslSupport = false; scpSupport = false; libssh2 = null`; brotli and zstd stay on) plus `--with-schannel` and `-DCURL_STATICLIB -DNGHTTP2_STATICLIB -DPSL_STATIC`.
+- `gitMinimal.override { curl = curlSchannel; withpcre2 = true; bash/gawk/gnused/gnugrep/coreutils = pkgs.X; }` to keep build-host tools native. PCRE2 needs `-DPCRE2_STATIC` (else its symbols are `dllimport`).
 - **EXTLIBS gotcha**: the MINGW Makefile block accumulates `EXTLIBS += -lws2_32 -lntdll` plus multicall.patch's `EXTLIBS += $(CURL_LIBCURL) $(EXPAT_LIBEXPAT)`. A command-line `EXTLIBS=...` makeFlag **clobbers all of that**, so re-include everything explicitly, ordered consumer-before-provider for single-pass static linking:
 
   ```
-  EXTLIBS=-lcurl -lexpat -lnghttp2 -lpsl -lidn2 -lunistring -liconv -lz -lws2_32 -lcrypt32 -lsecur32 -liphlpapi -lntdll -lbcrypt -ladvapi32
+  EXTLIBS=-lcurl -lexpat -lpcre2-8 -lnghttp2 -lpsl -lidn2 -lunistring -liconv -lbrotlidec -lbrotlicommon -lzstd -lz -lws2_32 -lcrypt32 -lsecur32 -liphlpapi -lntdll -lbcrypt -ladvapi32 -lshell32
   ```
 
   `-lsecur32` provides Schannel's SSPI table (`InitSecurityInterfaceA`); `-liphlpapi` provides `if_nametoindex` that curl uses for interface scoping; `-lcrypt32`/`-lbcrypt` provide the cert validation + AEAD surface Schannel needs.
@@ -305,6 +305,7 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 - **Exec-path entries carry `.exe`.** ash's PATH search adds the extension only after trying the bare name, and only counts a file executable by its extension — so the ZIP's names for git's dashed commands are `git-upload-pack.exe` etc., the exec hook retries with `.exe`, and virtual files always report `r-x` (their materialised copy is a `.tmp`).
 - **UTF-8 as the process code page.** busybox-w32 takes argv, `environ`, paths and child command lines through the ANSI APIs, so with the system code page (cp1252 on the VM) anything outside it became `?`: `cd` into a `日本` directory, hooks, the editor, submodule, filter-branch — 17 of 21 non-cp1252 cases failed. git's own manifest was never in the binary either: `git.rc` says `1 RT_MANIFEST`, a macro GNU windres doesn't have without `<winuser.h>`, so it stored a resource of *string* type `"RT_MANIFEST"` that Windows ignores (no `asInvoker`, no `supportedOS`). `mingw-utf8-manifest.patch` uses the numeric type 24 and adds `<activeCodePage>UTF-8</activeCodePage>` (Windows 10 1903+; older versions ignore it and stay in the ANSI code page); busybox is configured from upstream's `mingw64u_defconfig`, minus its refusal to start without the UTF-8 code page and its CNG hashing. 21/21 on the VM after.
 - **`git maintenance start`** schedules `git.exe` itself; upstream's `headless-git.exe` is not built.
+- **`git help` opens git-scm.com.** The MINGW block defaults `help.format` to html and no HTML manual ships; `mingw-help-web.patch` defaults the HTML path to `https://git-scm.com/docs` and opens it with `ShellExecute` (Git for Windows' way: `git-web--browse` finds no browser, it looks for `/bin/start`). From a session without a desktop (ssh) `ShellExecute` fails and git prints the URL it could not open.
 - Testing: git's `detect_msys_tty()` crashes under **wine** when stdin/stdout are pipes (NULL pipe-name buffer) — a wine artefact; test on real Windows.
 
 ### coreutils
