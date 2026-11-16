@@ -47,7 +47,7 @@ When a `pkgsCross.mingwW64.<pkg>` build fails with `<pwd.h>: No such file or dir
 
 **lstat:** MinGW provides it, but `#define lstat stat` is simpler and produces identical behavior.
 
-Reference: `tree/tree-mingw.patch` — canonical, ~70 lines, single `#ifdef _WIN32` block in the project's main header.
+Reference: `tree-mingw.patch` in the `tree` repo history (`git -C tree show fe7e4b4:tree-mingw.patch`) — ~70 lines, a single `#ifdef _WIN32` block in the project's main header. `tree` has since moved its Windows build to cosmocc (see the `readdir` note below).
 
 Validate with a quick local `x86_64-w64-mingw32-cc -c` cycle before wiring into the flake.
 
