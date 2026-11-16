@@ -368,4 +368,4 @@ Historical users: `srt` (CMake/C++), `librist` (meson/C), `avif` + `jxl` + `aom`
   done
   ```
 
-  Reference: `unpins/aom/multicall.nix`. See auto-memory `feedback_multicall_localize_app_provided_hooks`.
+  This lived in aom's `multicall.nix`, removed when aom moved to the engine self-fold (`unpins/aom` `67cc15e`; the file is in that commit's parent). See auto-memory `feedback_multicall_localize_app_provided_hooks`.
