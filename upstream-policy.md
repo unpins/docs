@@ -210,6 +210,7 @@ because the monthly re-pin does not move any of them:
 | `procps-ng/portable.nix` | own `fetchurl`, 4.0.6 | |
 | `biber/windows.nix` `Win32-Unicode-0.38` | | |
 | `nix-lib/toolchain/uapi-uc/` | 8 netfilter UAPI headers, vendored from `linuxHeaders` 6.18.7 | `linuxHeaders` does not evaluate from a darwin package set and this payload builds on darwin; re-sync recipe in its README |
+| `xvfb/`, `xvnc/` `tools/makekeys.c`, `src/unpin_keysym.c`, `src/unpin_xkbcompute.c` | code copied from libX11: `makekeys.c` identical to 1.8.13, the other two edited excerpts (keysym lookup, three XKB helpers) | the re-pin does not re-sync them; building makekeys from `libx11.src` is backlog |
 | `binaryen` | **not a divergence** — `overrideAttrs` to v132, keeps `old.patches` | |
 
 **Fresh derivation over a nixpkgs source** — dropping the recipe:
