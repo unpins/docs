@@ -32,7 +32,8 @@ filesystem that intercepts the program's own file calls for a marker path and
 serves them from that ZIP. The VFS core is shared — `unpins-lib.lib.vfsCore`
 points at the reader half of github:unpins/unpin-vfs, vendored once inside
 `nix-lib` and copied into each consumer's build (`cp ${lib.vfsCore}/*.c … src/`;
-nine packages use it: vim, gvim, file, perl, biber, tcc, zsh, xvfb, xvnc) —
+twelve packages use it: vim, gvim, file, perl, biber, tcc, zsh, nano, git,
+nmap, xvfb, xvnc) —
 and runs in **self-EOF mode**
 (`-DUNPIN_VFS_SELF`): `unpin_vfs_init()` locates the running executable
 (`/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`), opens it
@@ -46,11 +47,13 @@ offsets the embed writes mean the whole file parses as one archive. No
 plus per-package glue `unpins_init.c`). The build:
 
 1. `injectVfs` copies in the VFS core + glue. `unpins_init()` is injected right
-   after `mch_early_init()` in `main.c`; on Linux the libc file calls are
-   rerouted at link time (`ld --wrap`), on macOS by `llvm-objcopy
-   --redefine-sym` + relink, and on Windows `mch_open` / `mch_fopen` (real
-   wide-char wrapper functions) get a virtual-path dispatch patched in at
-   entry.
+   after `mch_early_init()` in `main.c`. On every native target vim's own libc
+   file-op references are renamed in the LLVM IR to the `unpinvfs_*` shims
+   that `vfs.c` defines under `-DUNPIN_VFS_NOWRAP` (`lib.vfsBindFns` holds the
+   per-platform spellings), and the program relinks; under the engine every
+   object is bitcode, which neither `ld --wrap` nor `llvm-objcopy` can reach.
+   On Windows `mch_open` / `mch_fopen` (real wide-char wrapper functions) get
+   a virtual-path dispatch patched in at entry.
 2. ONE `withUnpinEmbed` call (nix-lib) builds the whole embedded container in
    `postFixup` (after strip): `runtimeStage` stages the `share/vim/vim<NN>`
    tree CONTENTS as the ZIP root, `aliases = [ "xxd" ]` adds `unpin/aliases`,
@@ -72,8 +75,8 @@ decompress-only `zstddeclib.c`.
 > embedded ZIP but never mix: `unpin/*` and `.unpin/*` are unpin's namespaces,
 > read by the `unpin` CLI and hidden from the package's own VFS; everything
 > else is the runtime tree, served by the VFS and ignored by unpin's reader.
-> Every VFS package (vim, gvim, file, perl, biber, tcc, zsh, xvfb, xvnc) uses
-> this self-EOF model; the old `.incbin` blob-section variant is gone.
+> Every VFS package (vim, gvim, file, perl, biber, tcc, zsh, nano, git, nmap,
+> xvfb, xvnc) uses this self-EOF model; the old `.incbin` blob-section variant is gone.
 
 **A runtime tree must use this pattern — `.incbin`/`blob.S` is banned, not
 merely retired.** An `.incbin` names a file resolved when the *assembler* runs.
