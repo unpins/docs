@@ -218,7 +218,7 @@ because the monthly re-pin does not move any of them:
 | Site | Dropped today |
 |---|---|
 | `nix-lib/toolchain/default.nix` LLVM `monorepoSrc` | nixpkgs' LLVM patches — widest reach |
-| `nix-lib/flake.nix` `mkRustCrate` `muslCrossPure` | shared helper, so the hole is in the framework |
+| `nix-lib/flake.nix` `mkEngineRust` (every Linux arch and windows of `mkRustCrate`, `fish`, `unpin`) | shared helper, so the hole is in the framework |
 | `fish/flake.nix` | own cargo build over nixpkgs' `src`/`cargoDeps`: drops its 3 patches (2 test skips, nix-darwin `path_helper`) and the NixOS-only `postPatch`; none security. PCRE2 is nixpkgs' |
 | `php/windows.nix` | `fix-paths-php84.patch` |
 | `ffmpeg/flake.nix` | 2 patches, neither security — use `.override` |
