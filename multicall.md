@@ -85,7 +85,7 @@ exist under another name (`Xvnc.1` for the announced `xvnc`, `tar.1` for
 stub upstream forgot to install while installing its siblings (`zstdmt.1`,
 `pkill.1`). Those are repairs, not exceptions.
 
-That is the whole per-package mechanism (~85 flakes use it). The hand-written `./multicall.nix` recipes this page used to center on are **retired**; the three survivors (`unzip`, `usbutils`, `zip`) are Windows-only fallbacks for folds the engine's bitcode path can't do there. Recipes A and B below are kept as reference for those fallbacks and for any future non-engine context — read them only when you're outside the engine.
+That is the whole per-package mechanism (~85 flakes use it). The hand-written `./multicall.nix` recipes this page used to center on are **retired**; the three survivors (`e2fsprogs`, `unzip`, `zip`) are Windows (cosmo) fallbacks for folds the engine's bitcode path can't do there. Recipes A and B below are kept as reference for those fallbacks and for any future non-engine context — read them only when you're outside the engine.
 
 What every fold shares — engine or not — is the **dispatch contract** and the shared dispatcher generator, described next. It dispatches two ways, the **unified contract** across the whole catalog:
 
