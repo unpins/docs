@@ -17,8 +17,10 @@ The empty-import-table trade-off ([Caveats](#caveats)) has been accepted for pac
 
 ## When to reach for cosmocc
 
-- The mingw cross route fails because the package assumes POSIX `fork` / `waitpid` / signals / `/etc` runtime, **and** patching nixpkgs upstream would be open-ended.
-- The package already has a port in `ahgamut/superconfigure` (see [the superconfigure reference below](#superconfigure-reference)).
+unpins is a distribution, not a porter. When upstream ships its own MinGW build (a `win32/` or `pc/` makefile, a `mingw*` case in configure, a MinGW CI job), use that build on the engine, with fixes only where it breaks on a current 64-bit toolchain — `gawk` (`pc/`), `zip` and `unzip` (Info-ZIP's `win32/`). cosmocc is for the rest:
+
+- Upstream has no native Windows build, and the program assumes POSIX `fork` / `waitpid` / signals / `/etc` at runtime, so a mingw build would be a port of our own.
+- Or upstream's Windows build covers only part of what we ship, and the remainder would be that same port: `e2fsprogs` (upstream builds only `mke2fs` for mingw), `tcsh` (MSVC only), `xvfb` (the server builds for mingw, but the in-process xkbcomp it ships needs libX11/libxkbfile, which do not).
 
 If `pkgsCross.mingwW64.<pkg>` works, prefer it — the cosmocc route trades the empty import table caveat (next section) for buildability.
 
