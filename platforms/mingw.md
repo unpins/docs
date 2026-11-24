@@ -285,7 +285,7 @@ After both, `LDFLAGS=-Wl,--allow-multiple-definition` is no longer needed anywhe
 **Static cascade** lives in `git/flake.nix`'s `mkMingw` closure (wired at `packages.x86_64-linux.windows-x86_64`) — validated 2026-05-15, producing a 7.2 MB `git.exe` with zero non-system DLL imports:
 
 - `cross = nix-lib.lib.mingwStaticCross pkgs` for the static-libs adapter.
-- `curlSchannel = nix-lib.lib.mingwStaticBinary { ... }` — same shape as `unpins/curl` (`opensslSupport = false; scpSupport = false; libssh2 = null`; brotli and zstd stay on) plus `--with-schannel` and `-DCURL_STATICLIB -DNGHTTP2_STATICLIB -DPSL_STATIC`.
+- `curlSchannel = nix-lib.lib.mingwStaticBinary { ... }` — the shape of `unpins/curl`'s Windows build, minus its SCP/SFTP (`opensslSupport = false; scpSupport = false; libssh2 = null`; brotli and zstd stay on) plus `--with-schannel` and `-DCURL_STATICLIB -DNGHTTP2_STATICLIB -DPSL_STATIC`.
 - `gitMinimal.override { curl = curlSchannel; withpcre2 = true; bash/gawk/gnused/gnugrep/coreutils = pkgs.X; }` to keep build-host tools native. PCRE2 needs `-DPCRE2_STATIC` (else its symbols are `dllimport`).
 - **EXTLIBS gotcha**: the MINGW Makefile block accumulates `EXTLIBS += -lws2_32 -lntdll` plus multicall.patch's `EXTLIBS += $(CURL_LIBCURL) $(EXPAT_LIBEXPAT)`. A command-line `EXTLIBS=...` makeFlag **clobbers all of that**, so re-include everything explicitly, ordered consumer-before-provider for single-pass static linking:
 
