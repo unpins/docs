@@ -52,7 +52,7 @@ doCheck = pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform;
 
 Where it does **not** pass, or isn't worth it, leave `doCheck = false` with a one-line reason — same policy as a disabled feature. The recurring causes:
 
-- **Impractical / runaway cost** — the suite downloads large fixtures or runs for hours (`aom` pulls ~GB of AV1 test vectors; `coreutils`/`bash` suites fork hundreds of helper processes).
+- **Impractical / runaway cost** — the suite downloads large fixtures or runs for hours (`aom` pulls ~GB of AV1 test vectors).
 - **Breaks under static-musl** — tests that need `/proc`, locale data, DNS, a writable FHS, or a dynamic loader (`dlopen` plugins) that musl-static stubs out.
 - **No suite** — codec/data libs with nothing meaningful to run.
 
@@ -82,7 +82,7 @@ Check **per platform** — the ZIP is built independently on each (native objcop
 - **Cross has no man to harvest.** Windows/cosmo cross builds produce no `share/man`, so `mkStandaloneFlake` sources it from `x86_64-linux.<pkgsAttr>`. If the nixpkgs attr name differs from the package name (no `<pkgsAttr>` attr → `null`), supply the man explicitly via `manRoot` (see `gvim.exe` sourcing from `vim-full`).
 - **`binName` mismatch.** If the shipped binary isn't `<name>`, pass `binName` so `withMan` can find it.
 
-Packages that legitimately have no man (codec libs, `coreutils`/`busybox` without help2man) are expected to skip — note them in the README's embedded-resources list rather than chasing the warning. See [embedded-man.md](embedded-man.md).
+Packages that legitimately have no man (codec libs, `busybox` without help2man) are expected to skip — note them in the README's embedded-resources list rather than chasing the warning. See [embedded-man.md](embedded-man.md).
 
 ### CI green
 
