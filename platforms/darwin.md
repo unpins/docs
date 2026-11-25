@@ -147,6 +147,8 @@ An executable exports nothing anyone links against, so hiding these is safe. Ver
 
 ### When `-nostdlib++` can't work: the search-path shim
 
+> Off-engine recipe. Under the unpin-llvm engine no package needs it: the engine links its own libc++ statically, and ffmpeg's hardcoded `-lstdc++` is renamed to `-lc++` instead (`nix-lib/ffmpeg-engine-configure.patch`).
+
 `-nostdlib++` only suppresses the **implicit** `-lc++` the compiler driver adds. It does nothing about **explicit** `-lc++`/`-lstdc++` tokens that the build itself emits, and it strips the cc-wrapper's libcxx `-L` — so any such token then fails outright with `ld: library not found for -lstdc++`. ffmpeg hits exactly this: the C++ codec deps drag libc++ in two ways at once, both defaulting to the dynamic `/usr/lib/libc++.1.dylib`:
 
 - dep `.pc` `Libs.private` under `--pkg-config-flags=--static` — libgme emits `-lstdc++`, chromaprint `-lc++`, etc.;
@@ -174,7 +176,7 @@ Three load-bearing pieces:
 - **`NIX_LDFLAGS`, not `NIX_LDFLAGS_BEFORE`.** This darwin cc-wrapper does **not** honor `NIX_LDFLAGS_BEFORE` (the `-L` never reaches the link line — confirm with `make V=1`). `NIX_LDFLAGS` is prepended and lands before the sysroot dirs. Same gotcha bit the librsvg darwin fix.
 - **Alias `libc++.a` as `libstdc++.a` too.** On darwin libstdc++ *is* libc++; the hardcoded `-lstdc++` tokens need a file by that name on the path.
 
-`--extra-ldflags` lands early in ffmpeg's link line (`$LDFLAGS`), `--extra-libs` at the end (`$extralibs`). Verify with `otool -L` (only `libSystem` / Frameworks / `libobjc`). Case: ffmpeg (`ffmpeg/flake.nix`). The plain `-nostdlib++` recipe above is still correct for C++ apps that emit only the implicit `-lc++` (x265, srt, librist) — reach for the shim only when the build hardcodes explicit C++-runtime `-l` tokens.
+`--extra-ldflags` lands early in ffmpeg's link line (`$LDFLAGS`), `--extra-libs` at the end (`$extralibs`). Verify with `otool -L` (only `libSystem` / Frameworks / `libobjc`). Case: ffmpeg before the engine. The plain `-nostdlib++` recipe above is still correct for C++ apps that emit only the implicit `-lc++` (x265, srt, librist) — reach for the shim only when the build hardcodes explicit C++-runtime `-l` tokens.
 
 ## meson cross-file: `cpu_family` is `arm64`, not `aarch64`
 

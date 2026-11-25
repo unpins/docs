@@ -213,9 +213,8 @@ per package):
   the `.exe` path; `libwebp` is stricter still and aborts on its `wargc == argc`
   check. On mingw the dispatcher therefore also rewrites the process command line to
   `<applet> <args…>` before calling the applet. Pass `windows = true` to the
-  generator to get it (`flac`, `libwebp`, `opus-tools`, `vorbis-tools`,
-  `poppler-utils` need it; `ffmpeg` instead patches its own
-  `prepare_app_arguments`). Only a plain unquoted `--unpin-program=NAME` second
+  generator to get it (`ffmpeg`, `flac`, `libwebp`, `opus-tools`, `vorbis-tools`,
+  `poppler-utils` need it). Only a plain unquoted `--unpin-program=NAME` second
   token is rewritten. It is off by default so every non-Windows `.drv` keeps its
   hash, and cosmo doesn't want it: an APE never defines `_WIN32`, so those upstream
   rebuilds are not compiled in.
